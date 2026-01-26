@@ -1053,9 +1053,11 @@ REGLAS FINALES
             )
             return response.text
         except Exception as e:
-            if "429" in str(e) and attempt < 2:
-                print(f"Rate limited. Retrying in 30s... (Attempt {attempt+1}/3)")
-                time.sleep(30)
+            err_str = str(e)
+            if attempt < 2 and ("429" in err_str or "500" in err_str or "503" in err_str or "INTERNAL" in err_str):
+                wait_time = 30 if "429" in err_str else 10
+                print(f"Gemini error: {err_str[:100]}. Retrying in {wait_time}s... (Attempt {attempt+1}/3)")
+                time.sleep(wait_time)
                 continue
             return f"Error en IA: {e}. Datos crudos: {data}"
 
