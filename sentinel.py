@@ -230,16 +230,36 @@ def get_macro_event(date):
 
 
 # --- DATA FETCHING ---
+def download_with_backoff(tickers, start, end, retries=3):
+    """
+    Downloads data with exponential backoff (5s, 15s, 30s) to handle API hiccups.
+    """
+    delays = [5, 15, 30]
+    for i in range(retries + 1):
+        try:
+            df = yf.download(tickers, start=start, end=end, progress=False)
+            if not df.empty:
+                return df
+        except Exception as e:
+            print(f"Download attempt {i+1} failed: {e}")
+        
+        if i < retries:
+            wait = delays[i] if i < len(delays) else 30
+            print(f"Retrying in {wait}s...")
+            time.sleep(wait)
+    return pd.DataFrame()
+
+
 def get_data():
     """
     Fetches market data from Yahoo Finance and macro data from FRED.
     Returns close prices, WPM full OHLCV, and FRED macro indicators.
+    Implements retry logic and SPY fallback for SPX outages.
 
-    Note: Fetches 365 days (250+ trading days) to support adaptive thresholds
-    that use 250-day rolling statistics (z-scores, percentiles).
+    Note: Fetches 365 days (250+ trading days) to support adaptive thresholds.
     """
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=365)  # Extended for adaptive thresholds
+    start_date = end_date - timedelta(days=365)
 
     print("Fetching Market Data...")
 
@@ -253,26 +273,53 @@ def get_data():
         "HG=F",       # Copper Futures
         "HRC=F",      # Steel (Hot Rolled Coil) Futures
         "ITA",        # Aerospace & Defense ETF
-        "DX-Y.NYB",  # US Dollar Index
+        "DX-Y.NYB",   # US Dollar Index
         "WPM",        # Wheaton Precious Metals
         "BTC-USD",    # Bitcoin
     ]
 
-    try:
-        raw_data = yf.download(tickers, start=start_date, end=end_date, progress=False)
-        # Forward fill to handle weekends and minor API gaps
-        raw_data = raw_data.ffill()
-    except Exception as e:
-        print(f"Yahoo Finance Error: {e}")
-        raw_data = pd.DataFrame()
+    # Primary Download with Retry
+    raw_data = download_with_backoff(tickers, start_date, end_date)
+    raw_data = raw_data.ffill()
 
+    # Handle MultiIndex vs Single Level
     if not raw_data.empty:
         if isinstance(raw_data.columns, pd.MultiIndex):
-            data = raw_data['Close']
+            data = raw_data['Close'].copy()
         else:
-            data = raw_data
+            data = raw_data.copy()
     else:
         data = pd.DataFrame()
+
+    # SPX Fallback Logic
+    # Check if ^SPX is missing or all NaN
+    spx_missing = True
+    if "^SPX" in data.columns and not data["^SPX"].dropna().empty:
+        spx_missing = False
+
+    if spx_missing:
+        print("⚠️ WARNING: ^SPX data missing or invalid. Attempting fallback to SPY...")
+        spy_data = download_with_backoff(["SPY"], start_date, end_date)
+        
+        if not spy_data.empty:
+            # Extract Close for SPY
+            if isinstance(spy_data.columns, pd.MultiIndex):
+                # Access via ('Close', 'SPY') if possible, or just index into Close
+                if 'Close' in spy_data.columns and 'SPY' in spy_data['Close'].columns:
+                     spy_series = spy_data['Close']['SPY']
+                else:
+                     # Fallback for weird shapes
+                     spy_series = spy_data.iloc[:, 0]
+            elif 'Close' in spy_data.columns:
+                spy_series = spy_data['Close']
+            else:
+                spy_series = spy_data.iloc[:, 0]
+            
+            # Inject as ^SPX
+            data["^SPX"] = spy_series
+            print("✅ FALLBACK SUCCESS: SPY data injected as ^SPX proxy.")
+        else:
+            print("❌ FALLBACK FAILED: SPY data also unavailable.")
 
     # Fetch WPM separately for Volume data.
     try:
