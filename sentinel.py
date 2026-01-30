@@ -479,16 +479,17 @@ def analyze_market(df, wpm_df, fred_df, housing_df, state):
     if missing:
         return {"event": "DATA_OUTAGE", "missing": missing}
 
-    # Safe Defaults for Auxiliary Metrics
-    dxy = get_latest("DX-Y.NYB") or 100.00
-    oil = get_latest("CL=F") or 70.00
-    gold = get_latest("GC=F") or 2000.00
-    silver = get_latest("SI=F") or 25.00
-    copper = get_latest("HG=F") or 4.00
-    steel = get_latest("HRC=F") or 800.00
-    ita = get_latest("ITA") or 130.00
-    vix = get_latest("^VIX") or 15.00
-    wpm_val = wpm or 50.00 # Fallback for price
+    # Safe Defaults for Auxiliary Metrics (Updated for 2026 Baseline)
+    # Uses these ONLY if primary AND backup feeds fail completely.
+    dxy = get_latest("DX-Y.NYB") or 96.00
+    oil = get_latest("CL=F") or 65.00
+    gold = get_latest("GC=F") or 5200.00
+    silver = get_latest("SI=F") or 100.00
+    copper = get_latest("HG=F") or 6.00
+    steel = get_latest("HRC=F") or 960.00
+    ita = get_latest("ITA") or 230.00
+    vix = get_latest("^VIX") or 18.00
+    wpm_val = wpm or 150.00 # Fallback for price
 
     # FRED Macros
     spread = fred_df["BAMLH0A0HYM2"].iloc[-1] if not fred_df.empty and "BAMLH0A0HYM2" in fred_df.columns else 3.5
