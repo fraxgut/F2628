@@ -45,6 +45,10 @@ def load_state():
             "SUGAR_CRASH": [],
             "EM_CURRENCY_STRESS": [],
             "WAR_PROTOCOL": []
+        },
+        "daily_alerts": {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "sent_events": []
         }
     }
 
@@ -65,6 +69,14 @@ def load_state():
         # Ensure recent_signals exists (migration for old state files)
         if "recent_signals" not in state:
             state["recent_signals"] = default_state["recent_signals"]
+
+        # Ensure daily_alerts exists and is for today (reset if new day)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        if "daily_alerts" not in state or state["daily_alerts"].get("date") != today_str:
+            state["daily_alerts"] = {
+                "date": today_str,
+                "sent_events": []
+            }
 
         return state
     except Exception as e:
@@ -1160,18 +1172,18 @@ if __name__ == "__main__":
 
         print(f"Analysis Result: {analysis}")
 
-        # Update state if needed (entry/exit signals).
+        # Update state with entry/exit signals first (independent of notification suppression)
         if analysis.get("state_update"):
             for key, value in analysis["state_update"].items():
                 state[key] = value
-            save_state(state)
-            print(f"Updated state: {state}")
 
         current_hour = datetime.utcnow().hour
         is_manual_run = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
         should_send = False
+        detected_event = analysis["event"]
 
-        if analysis["event"] == "DATA_OUTAGE":
+        # --- SMART NOTIFICATION LOGIC ---
+        if detected_event == "DATA_OUTAGE":
             missing = ", ".join(analysis["missing"])
             today_str = datetime.now().strftime("%Y-%m-%d")
             outage_msg = (
@@ -1183,15 +1195,31 @@ if __name__ == "__main__":
             )
             msg_id = send_telegram(outage_msg)
             print(f"DATA OUTAGE: missing {missing}")
-        elif analysis["event"] != "NORMAL":
-            should_send = True
+        
+        elif detected_event != "NORMAL":
+            # Check if this specific alarm was already sent today
+            if detected_event in state["daily_alerts"]["sent_events"] and current_hour < 20:
+                print(f"🤐 SUPPRESSED: '{detected_event}' already sent today. Waiting for EOD summary.")
+                should_send = False
+            else:
+                should_send = True
+                # Record this event as sent
+                if detected_event not in state["daily_alerts"]["sent_events"]:
+                    state["daily_alerts"]["sent_events"].append(detected_event)
+
         elif is_manual_run:
             should_send = True
             print("Manual Test Detected. Forcing alert.")
+        
         elif current_hour >= 20:
-            should_send = True
+            should_send = True # Always send the EOD heartbeat
+        
         else:
             print(f"Status Normal (Hour {current_hour} UTC). Keeping silent.")
+
+        # Save state (positions + daily alerts history)
+        save_state(state)
+        print(f"Updated state: {state}")
 
         if should_send:
             alert_text = generate_alert_text(analysis)
