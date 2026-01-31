@@ -1009,7 +1009,39 @@ IMPORTANTE: Entre cada sección usa EXACTAMENTE UN salto de línea (no dos).
 6. <b><u>Análisis</u></b>
    Párrafo(s) de análisis. Comienza con la fecha: "{today_str} -". Conecta los datos con la fase del ciclo Foldvary (Auge, Especulación, o Quiebre). Identifica qué fase estamos transitando. Varía la redacción cada día. Si hay macro_event, úsalo como contexto.
 
-   IMPORTANTE: NO menciones códigos internos de señales (HOUSING_BUST, SOLVENCY_DEATH, etc.) en el análisis. Usa términos descriptivos en español (ej: "deterioro inmobiliario", "crisis de crédito").
+   IMPORTANTE: NO menciones códigos internos de señales (HOUSING_BUST, SOLVENCY_DEATH, etc.) en el análisis. NUNCA digas "la señal X no se activó". Habla como un economista, no como un script.
+
+   GUÍA DE ESTILO Y VOCABULARIO (STRICT COMPLIANCE REQUIRED)
+   ---------------------------------------------------------
+   Regla de Oro: El lector NO debe saber que eres un script de Python. NO uses nombres de variables ni códigos internos.
+
+   TABLA DE TRADUCCIÓN OBLIGATORIA:
+   ❌ CÓDIGO INTERNO (PROHIBIDO) | ✅ LENGUAJE NATURAL (USAR ESTO)
+   ------------------------------|--------------------------------
+   HOUSING_BUST                  | "Colapso de la construcción", "giro del ciclo inmobiliario", "paralización de obras", "crisis de vivienda".
+   SOLVENCY_DEATH                | "Crisis de crédito", "cierre del grifo de financiación", "pánico en deuda corporativa".
+   SUGAR_CRASH                   | "Trampa alcista", "euforia artificial", "divergencia técnica severa".
+   BOND_FREEZE                   | "Pánico en renta fija", "desplome de bonos", "disparada de rendimientos".
+   WAR_PROTOCOL                  | "Riesgo geopolítico", "shock de oferta en energía", "temor a conflicto global".
+   EM_CURRENCY_STRESS            | "Asfixia de emergentes", "super-dólar destructivo", "crisis de balanza de pagos".
+   LABOR_SHOCK                   | "Deterioro del empleo", "aumento del desempleo", "debilidad laboral".
+   INTERBANK_STRESS              | "Desconfianza bancaria", "tensión de liquidez", "estrés en el mercado repo".
+   COMBO_CRISIS                  | "Tormenta perfecta", "colapso sistémico simultáneo", "crisis de liquidez y solvencia".
+   TEMPORAL_CRISIS               | "Convergencia de riesgos", "deterioro acelerado en múltiples frentes".
+   FLASH_MOVE                    | "Movimiento violento", "shock de volatilidad", "ajuste repentino".
+   BUY_WPM_NOW                   | "Oportunidad en activos reales", "punto de entrada en streaming", "capitulación en metales".
+   BUY_BTC_NOW                   | "Giro de liquidez favorable", "expansión monetaria detectada".
+   SELL_...                      | "Toma de beneficios", "alerta de salida", "protección de capital".
+
+   EJEMPLOS DE CORRECCIÓN:
+   ❌ MAL: "No se activó la señal HOUSING_BUST gracias a los inicios de construcción."
+   ✅ BIEN: "El sector inmobiliario se mantiene estable, con los inicios de construcción sosteniendo el ciclo actual."
+
+   ❌ MAL: "Detectamos un SUGAR_CRASH en el mercado."
+   ✅ BIEN: "El mercado muestra una peligrosa euforia técnica que no se corresponde con los fundamentales."
+
+   ❌ MAL: "La señal SOLVENCY_DEATH está apagada."
+   ✅ BIEN: "Los mercados de crédito operan con normalidad, sin estrés visible en la financiación corporativa."
 
    En estado NORMAL: Análisis breve (3-5 líneas) sobre posición en el ciclo y riesgos latentes.
    En CRISIS: Análisis extenso explicando la mecánica del riesgo, comparaciones históricas, y qué vigilar.
