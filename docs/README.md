@@ -21,6 +21,24 @@ Fork this repo, then add secrets under Settings > Secrets > Actions:
 - `GIST_TOKEN` - GitHub Personal Access Token with `gist` scope
 - `STATE_GIST_ID` - ID of a secret gist for state storage
 
+**Optional (for history/regime storage):**
+- `HISTORY_DB_PATH` - Local path for SQLite history (default: `output/history.db`)
+- `HISTORY_GIST_FILENAME` - Filename stored in the state gist (default: `history.db.b64`)
+- `HISTORY_RETENTION_DAYS` - Days of history to retain (default: `365`)
+- `REGIME_WINDOW_DAYS` - Rolling window for regime phase (default: `14`)
+- `REGIME_TREND_DAYS` - Window for regime trend (default: `7`)
+- `REGIME_MIN_DAYS` - Minimum history for high confidence (default: `7`)
+- `REGIME_METHOD` - `auto`, `zscore`, `percentile`, `absolute`, or `calibrated` (default: `auto`)
+- `REGIME_AUTO_Z_MIN_SAMPLES` - Samples needed to auto-enable z-score (default: `90`)
+- `REGIME_AUTO_PCT_MIN_SAMPLES` - Samples needed to auto-enable percentile (default: `180`)
+- `REGIME_Z_LOOKBACK` - Lookback window for z-score stats (default: `180`)
+- `REGIME_PCT_LOOKBACK` - Lookback window for percentile stats (default: `180`)
+- `REGIME_Z_PHASE2_ENTER/EXIT`, `REGIME_Z_PHASE3_ENTER/EXIT` - Z-score thresholds for hysteresis
+- `REGIME_PCT_PHASE2_ENTER/EXIT`, `REGIME_PCT_PHASE3_ENTER/EXIT` - Percentile thresholds for hysteresis
+- `REGIME_CALIBRATION_PATH` - Optional JSON calibration file path (default: `output/regime_calibration.json`)
+- `PHASE_2_THRESHOLD/EXIT`, `PHASE_3_THRESHOLD/EXIT` - Absolute thresholds for fallback hysteresis
+If `GIST_TOKEN` and `STATE_GIST_ID` are set, the history database is synced into the same gist using the `HISTORY_GIST_FILENAME` file.
+
 See [SETUP_EXIT_SIGNALS.md](SETUP_EXIT_SIGNALS.md) for detailed instructions on enabling exit signals.
 
 Enable the workflow under the Actions tab. It runs every 4 hours on weekdays (`0 */4 * * 1-5`).
@@ -32,6 +50,19 @@ pip install -r requirements.txt
 export GEMINI_API_KEY="..." TELEGRAM_TOKEN="..." TELEGRAM_CHAT_ID="..."
 python sentinel.py
 ```
+
+If you prefer a `.env` file locally, create one from `.env.example` and load it before running:
+
+```
+set -a
+source .env
+set +a
+python sentinel.py
+```
+
+## Checks
+- `python scripts/check_alert_format.py` - validates the Telegram HTML sanitiser strips Markdown tokens.
+- `python scripts/check_history_store.py` - validates SQLite history/regime calculations.
 
 ## How it works
 

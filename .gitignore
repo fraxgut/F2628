@@ -219,6 +219,7 @@ backtest_*.txt
 signal_combinations_*.csv
 *.pdf
 generate_backtest_report.py
+output/history.db*
 
 # Test files
 test_*.py

@@ -1,12 +1,16 @@
+import json
 import os
 import time
-import json
-import yfinance as yf
+from datetime import datetime, timedelta
+
 import pandas as pd
 import pandas_datareader.data as web
 import requests
+import yfinance as yf
 from google import genai
-from datetime import datetime, timedelta
+
+import history_store
+from telegram_format import sanitize_telegram_html
 
 # --- CONFIGURATION ---
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
@@ -32,6 +36,12 @@ HOUSING_STALE_DAYS = {
     "CSUSHPINSA": 75,     # Monthly with lag
     "DRSFRMACBS": 120     # Quarterly
 }
+HISTORY_DB_PATH = os.environ.get("HISTORY_DB_PATH", os.path.join("output", "history.db"))
+HISTORY_GIST_FILENAME = os.environ.get("HISTORY_GIST_FILENAME", "history.db.b64")
+HISTORY_RETENTION_DAYS = int(os.environ.get("HISTORY_RETENTION_DAYS", "365"))
+REGIME_WINDOW_DAYS = int(os.environ.get("REGIME_WINDOW_DAYS", "14"))
+REGIME_TREND_DAYS = int(os.environ.get("REGIME_TREND_DAYS", "7"))
+REGIME_MIN_DAYS = int(os.environ.get("REGIME_MIN_DAYS", "7"))
 
 # Initialize the new Client
 client = genai.Client(api_key=GEMINI_KEY)
@@ -936,6 +946,8 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state):
     elif stress_score <= 4: stress_level = "Alto (Fragilidad)"
     else: stress_level = "CRÍTICO (Riesgo Sistémico)"
 
+    phase_daily = history_store.phase_from_score(stress_score)
+
     # --- EXIT SIGNALS ---
     # Exit signals only fire if we have open positions (tracked in state).
     # Priority: Emergency exits (SOLVENCY while holding) > Normal exits.
@@ -1039,12 +1051,17 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state):
         if trigger_event in tracked_signals:
             add_signal_to_history(state, trigger_event, end_date)
 
+    trigger_events = [evt for evt, _ in active_triggers]
+
     macro_event, calendar_warning = get_macro_event(end_date)
 
     return {
         "event": event,
         "reason": reason,
         "stress_level": stress_level,
+        "stress_score": stress_score,
+        "phase_daily": phase_daily,
+        "trigger_events": trigger_events,
         "state_update": state_update,
         "us10y": round(us10y, 2) if us10y else 0,
         "spread": round(spread, 2),
@@ -1088,7 +1105,17 @@ def generate_alert_text(data):
     event = data.get("event", "NORMAL")
 
     # Build clean data payload (exclude internal fields)
-    market_data = {k: v for k, v in data.items() if k not in ("state_update",)}
+    internal_fields = {
+        "state_update",
+        "trigger_events",
+        "stress_score",
+        "phase_score",
+        "regime_score",
+        "regime_method",
+        "regime_value",
+        "regime_trend_score",
+    }
+    market_data = {k: v for k, v in data.items() if k not in internal_fields}
 
     prompt = f"""Eres el <b>Centinela F2628</b>, un sistema de defensa patrimonial y alerta de crisis macroeconómica. Tu misión es detectar el agotamiento del ciclo de deuda y la inminencia de un colapso sistémico. La función principal es vigilancia de depresión; las señales de trading son auxiliares.
 
@@ -1110,6 +1137,7 @@ REGLAS ESTRICTAS:
 - PROHIBIDO: Usar la palabra "Foldvary". NUNCA menciones este nombre ni el "Ciclo de Foldvary" en el mensaje público.
 - Tono: Profesional, técnico pero masificado (accesible).
 - Formato: SOLO HTML de Telegram (<b>, <i>, <u>, saltos de línea).
+- Para énfasis, usa etiquetas HTML (<b>, <i>) y nunca ** o *.
 - PROHIBIDO: Markdown (*, #, _, `, ```, -). Ni un solo carácter de Markdown.
 - Idioma: Español formal, técnico. Sin anglicismos innecesarios.
 
@@ -1123,6 +1151,10 @@ IMPORTANTE: Entre cada sección usa EXACTAMENTE UN salto de línea (no dos).
 4. <b><u>Estado del Sistema</u></b>
    - <b>Estrés:</b> {{stress_level}}
    - <b>Señal:</b> {{reason}}
+   {"- <b>Régimen de Ciclo (" + str(data.get('regime_window_days')) + "d):</b> " + str(data.get('regime_phase')) if data.get('regime_phase') else ""}
+   {"- <b>Tendencia Régimen:</b> " + str(data.get('regime_trend')) if data.get('regime_trend') else ""}
+   {"- <b>Fase Diaria:</b> " + str(data.get('phase_daily')) if data.get('phase_daily') else ""}
+   {"- <b>Confianza Régimen:</b> " + str(data.get('regime_confidence')) if data.get('regime_confidence') else ""}
    {"- <b>Vigilancia Depresión:</b> " + ("ALERTA (riesgo sistémico prolongado)" if event == "DEPRESSION_ALERT" else "WATCH (fragilidad estructural)") if event in ("DEPRESSION_ALERT", "DEPRESSION_WATCH") else ""}
    {"- <b>Evento Macro:</b> " + str(data.get('macro_event')) if data.get('macro_event') else ""}
    {"- <b>Calendario Macro:</b> " + str(data.get('calendar_warning')) if data.get('calendar_warning') else ""}
@@ -1168,7 +1200,7 @@ IMPORTANTE: Entre cada sección usa EXACTAMENTE UN salto de línea (no dos).
    - <b>Morosidad:</b> {data.get('delinquency_rate')}%
    [UN salto de línea]
 6. <b><u>Análisis</u></b>
-   Párrafo(s) de análisis. Comienza con la fecha: "{today_str} -". Conecta los datos con la fase del ciclo (Auge, Especulación, o Quiebre). Identifica qué fase estamos transitando. Varía la redacción cada día. Si hay macro_event, úsalo como contexto.
+   Párrafo(s) de análisis. Comienza con la fecha: "{today_str} -". Conecta los datos con la fase del ciclo (Auge, Especulación, o Quiebre). Identifica qué fase estamos transitando. Varía la redacción cada día. Si hay macro_event, úsalo como contexto. Si existe "Régimen de Ciclo", úsalo como fase principal; si la Fase Diaria difiere, descríbelo como un shock puntual sin declarar cambio de fase salvo persistencia.
 
    IMPORTANTE: NO menciones códigos internos de señales (HOUSING_BUST, SOLVENCY_DEATH, etc.) en el análisis. NUNCA digas "la señal X no se activó". Habla como un economista, no como un script. NUNCA digas "Foldvary".
 
@@ -1323,21 +1355,94 @@ REGLAS FINALES
 - Si ves múltiples señales en "reason", significa que hay más de un gatillo activo. Analiza CADA UNO.
 """
 
-    for attempt in range(3):
+    max_retries = 8
+    for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
                 model="gemini-flash-latest",
                 contents=prompt
             )
-            return response.text
+            return sanitize_telegram_html(response.text)
         except Exception as e:
             err_str = str(e)
-            if attempt < 2 and ("429" in err_str or "500" in err_str or "503" in err_str or "INTERNAL" in err_str):
-                wait_time = 30 if "429" in err_str else 10
-                print(f"Gemini error: {err_str[:100]}. Retrying in {wait_time}s... (Attempt {attempt+1}/3)")
+            is_retryable = ("429" in err_str or "500" in err_str or "503" in err_str or 
+                           "INTERNAL" in err_str or "disconnected" in err_str or "timeout" in err_str)
+            
+            if attempt < max_retries - 1 and is_retryable:
+                wait_time = 30 * (2 ** attempt)  # 30s, 60s, 120s...
+                print(f"Gemini error: {err_str[:100]}. Retrying in {wait_time}s... (Attempt {attempt+1}/{max_retries})")
                 time.sleep(wait_time)
                 continue
-            return f"Error en IA: {e}. Datos crudos: {data}"
+            return sanitize_telegram_html(f"Error en IA: {e}. Datos crudos: {data}")
+
+
+def update_regime_context(analysis):
+    """
+    Persists daily snapshots in SQLite and enriches the analysis with a multi-day regime.
+    """
+    if not analysis or "stress_score" not in analysis:
+        return analysis
+
+    if not HISTORY_DB_PATH:
+        return analysis
+
+    try:
+        if GIST_TOKEN and STATE_GIST_ID:
+            history_store.load_db_from_gist(
+                GIST_TOKEN,
+                STATE_GIST_ID,
+                HISTORY_DB_PATH,
+                HISTORY_GIST_FILENAME,
+            )
+
+        history_store.ensure_db(HISTORY_DB_PATH)
+
+        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        snapshot = {
+            "date": date_str,
+            "run_ts": datetime.utcnow().isoformat(),
+            "event": analysis.get("event"),
+            "stress_score": analysis.get("stress_score"),
+            "stress_level": analysis.get("stress_level"),
+            "phase_daily": analysis.get("phase_daily"),
+            "phase_score": float(analysis.get("stress_score")) if analysis.get("stress_score") is not None else None,
+            "regime_phase": None,
+            "regime_score": None,
+            "regime_trend": None,
+            "regime_confidence": None,
+            "spx": analysis.get("spx"),
+            "vix": analysis.get("vix"),
+            "spread": analysis.get("spread"),
+            "us10y": analysis.get("us10y"),
+            "dxy": analysis.get("dxy"),
+            "net_liq_b": analysis.get("net_liq_b"),
+            "gold": analysis.get("gold"),
+            "btc": analysis.get("btc_price"),
+            "triggers": ",".join(analysis.get("trigger_events") or []),
+            "reason": analysis.get("reason"),
+        }
+
+        history_store.upsert_daily_snapshot(HISTORY_DB_PATH, snapshot)
+        history_store.prune_history(HISTORY_DB_PATH, HISTORY_RETENTION_DAYS)
+
+        history_limit = max(REGIME_WINDOW_DAYS, REGIME_MIN_DAYS, REGIME_TREND_DAYS * 2)
+        history_rows = history_store.fetch_recent_history(HISTORY_DB_PATH, history_limit)
+        regime = history_store.compute_regime(history_rows, REGIME_WINDOW_DAYS, REGIME_TREND_DAYS, REGIME_MIN_DAYS)
+
+        analysis.update(regime)
+        history_store.update_regime_fields(HISTORY_DB_PATH, date_str, regime)
+
+        if GIST_TOKEN and STATE_GIST_ID:
+            history_store.save_db_to_gist(
+                GIST_TOKEN,
+                STATE_GIST_ID,
+                HISTORY_DB_PATH,
+                HISTORY_GIST_FILENAME,
+            )
+    except Exception as exc:
+        print(f"History store error: {exc}")
+
+    return analysis
 
 
 # --- MESSENGER (TELEGRAM) ---
@@ -1374,6 +1479,7 @@ if __name__ == "__main__":
 
         market_data, wpm_data, fred_data, housing_data = get_data()
         analysis = analyse_market(market_data, wpm_data, fred_data, housing_data, state)
+        analysis = update_regime_context(analysis)
 
         print(f"Analysis Result: {analysis}")
 
@@ -1403,14 +1509,20 @@ if __name__ == "__main__":
         
         elif detected_event != "NORMAL":
             # Check if this specific alarm was already sent today
-            if detected_event in state["daily_alerts"]["sent_events"] and current_hour < 20:
+            already_sent = detected_event in state["daily_alerts"]["sent_events"]
+
+            if is_manual_run:
+                print(f"Manual Run: Forcing dispatch of '{detected_event}' (ignoring cache).")
+                should_send = True
+            elif already_sent and current_hour < 20:
                 print(f"🤐 SUPPRESSED: '{detected_event}' already sent today. Waiting for EOD summary.")
                 should_send = False
             else:
                 should_send = True
-                # Record this event as sent
-                if detected_event not in state["daily_alerts"]["sent_events"]:
-                    state["daily_alerts"]["sent_events"].append(detected_event)
+            
+            # Record this event as sent if we are sending it (and it wasn't already)
+            if should_send and not already_sent:
+                state["daily_alerts"]["sent_events"].append(detected_event)
 
         elif is_manual_run:
             should_send = True
