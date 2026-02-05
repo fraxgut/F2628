@@ -26,6 +26,93 @@ HIST_WINDOW_TRADING_DAYS = 252 * 5
 DEPRESSION_Z_THRESHOLD = 2.0
 DEPRESSION_COMPONENTS_REQUIRED = 3
 
+REPORT_TEXT = {
+    "en": {
+        "header_title": "Centinela F2628 - Comprehensive Backtest Report",
+        "page_label": "Page",
+        "period_label": "Period",
+        "total_days_label": "Total Trading Days",
+        "benchmark_label": "Benchmark (SPX) Total Return",
+        "basis_label": "Basis: Austro-Georgist Synthesis (18-year Cycle)",
+        "inspiration_label": "Main Inspiration: Fred Foldvary",
+        "glossary_title": "Glossary & Definitions",
+        "glossary_text": (
+            "Win Rate: Percentage of times the asset price INCREASED over the period.\n"
+            "Crash Accuracy: Percentage of times the asset price DECREASED (Correct for Crisis Signals).\n"
+            "Avg Return: The average percentage change in price.\n"
+            "Vol(SD): Standard Deviation of returns (Volatility risk).\n"
+            "COMBO_CRISIS: Simultaneous trigger of Solvency Death (Credit) + Sugar Crash (Euphoria).\n"
+            "NOTE: For Crisis Signals (Red), a high 'Win Rate' means the signal FAILED (market rose).\n"
+            "      A high 'Crash Accuracy' means the signal SUCCEEDED (market fell)."
+        ),
+        "nber_title": "NBER Recession Alignment (Context)",
+        "nber_desc": "Share of signals followed by an NBER recession flag within the 12-month window.",
+        "col_signal": "Signal",
+        "col_count": "Count",
+        "col_nber_rate": "NBER Rate",
+        "cluster_title": "Cluster-Start Summary (De-duplicated)",
+        "cluster_desc": "Uses only the first signal in each 30-day cluster to reduce autocorrelation. Rates are more conservative.",
+        "cluster_cols": ["Signal", "Count", "Crash90", "Win180", "Depression", "NBER"],
+        "category_crisis": "Crisis Predictors (Bearish)",
+        "category_entry": "Entry Signals (Bullish)",
+        "signal_prefix": "SIGNAL",
+        "table_cols": ["Win", "Count", "WinRate", "CrashAcc", "Avg", "Med", "Best", "Worst", "Vol(SD)"],
+        "insufficient": "Insufficient Data",
+        "evaluation_prefix": "Evaluation:",
+        "analysis_buy_strong": "STRONG BULLISH. Historically profitable entry point. ",
+        "analysis_buy_moderate": "MODERATE BULLISH. Positive expectancy but requires patience. ",
+        "analysis_buy_weak": "WEAK/FAILED ENTRY. Historically loses money. ",
+        "analysis_crisis_valid": "VALID CRISIS INDICATOR. High probability of market decline. ",
+        "analysis_crisis_contrarian": "CONTRARIAN INDICATOR. Market consistently RISES after this signal (Bullish). ",
+        "analysis_crisis_stagnation": "STAGNATION SIGNAL. Market tends to move sideways (Choppy). ",
+        "analysis_crisis_noise": "NOISE / LOW PREDICTIVE VALUE. ",
+    },
+    "es": {
+        "header_title": "Centinela F2628 - Reporte de Backtest Integral",
+        "page_label": "Página",
+        "period_label": "Periodo",
+        "total_days_label": "Días de negociación",
+        "benchmark_label": "Retorno total del benchmark (SPX)",
+        "basis_label": "Base: Síntesis Austro-Georgista (ciclo de 18 años)",
+        "inspiration_label": "Inspiración principal: Fred Foldvary",
+        "glossary_title": "Glosario y Definiciones",
+        "glossary_text": (
+            "Win Rate: Porcentaje de veces que el precio del activo SUBIÓ en el periodo.\n"
+            "Crash Accuracy: Porcentaje de veces que el precio del activo BAJÓ (correcto para señales de crisis).\n"
+            "Avg Return: Cambio porcentual promedio del precio.\n"
+            "Vol(SD): Desviación estándar de retornos (riesgo de volatilidad).\n"
+            "COMBO_CRISIS: Activación simultánea de Solvency Death (Crédito) + Sugar Crash (Euforia).\n"
+            "NOTA: Para señales de crisis (rojo), una alta 'Win Rate' significa que la señal FALLÓ (el mercado subió).\n"
+            "      Una alta 'Crash Accuracy' significa que la señal ACERTÓ (el mercado cayó)."
+        ),
+        "nber_title": "Alineación con Recesiones NBER (Contexto)",
+        "nber_desc": "Porción de señales seguidas por una recesión NBER dentro de la ventana de 12 meses.",
+        "col_signal": "Señal",
+        "col_count": "Conteo",
+        "col_nber_rate": "Tasa NBER",
+        "cluster_title": "Resumen de Inicio de Clúster (Depurado)",
+        "cluster_desc": "Usa solo la primera señal en cada clúster de 30 días para reducir autocorrelación. Tasas más conservadoras.",
+        "cluster_cols": ["Señal", "Conteo", "Crash90", "Win180", "Depresión", "NBER"],
+        "category_crisis": "Predictores de Crisis (Bajistas)",
+        "category_entry": "Señales de Entrada (Alcistas)",
+        "signal_prefix": "SEÑAL",
+        "table_cols": ["Ventana", "Conteo", "TasaWin", "PrecCrash", "Prom", "Med", "Mejor", "Peor", "Vol(DE)"],
+        "insufficient": "Datos insuficientes",
+        "evaluation_prefix": "Evaluación:",
+        "analysis_buy_strong": "FUERTEMENTE ALCISTA. Punto de entrada históricamente rentable. ",
+        "analysis_buy_moderate": "ALCISTA MODERADO. Expectativa positiva pero requiere paciencia. ",
+        "analysis_buy_weak": "ENTRADA DÉBIL/FALLIDA. Históricamente pierde dinero. ",
+        "analysis_crisis_valid": "INDICADOR DE CRISIS VÁLIDO. Alta probabilidad de caída del mercado. ",
+        "analysis_crisis_contrarian": "INDICADOR CONTRARIO. El mercado suele SUBIR tras esta señal (alcista). ",
+        "analysis_crisis_stagnation": "SEÑAL DE ESTANCAMIENTO. El mercado tiende a moverse lateral (choppy). ",
+        "analysis_crisis_noise": "RUIDO / BAJO VALOR PREDICTIVO. ",
+    },
+}
+
+
+def get_report_labels(lang):
+    return REPORT_TEXT.get(lang, REPORT_TEXT["en"])
+
 # --- TECHNICAL INDICATORS ---
 def rsi(series, period=14):
     if series.empty or len(series) < period:
@@ -450,21 +537,28 @@ def compute_depression_outcomes(market_df, fred_df, housing_df, idx, precomp):
 
 # --- REPORTING ---
 class DetailedPDF(FPDF):
+    def __init__(self, labels):
+        super().__init__()
+        self.labels = labels
+
     def header(self):
         # Register Lexend Font
         self.add_font('Lexend', '', 'fonts/LexendDeca-Regular.ttf', uni=True)
         self.add_font('Lexend', 'B', 'fonts/LexendDeca-Bold.ttf', uni=True)
-        
+
         self.set_font('Lexend', 'B', 14)
-        self.cell(0, 10, 'Centinela F2628 - Comprehensive Backtest Report', 0, 1, 'C')
+        self.cell(0, 10, self.labels["header_title"], 0, 1, 'C')
         self.ln(5)
+
     def footer(self):
         self.set_y(-15)
         self.set_font('Lexend', '', 8)
-        self.cell(0, 10, f'Page {self.page_no()}/{{nb}}', 0, 0, 'C')
+        self.cell(0, 10, f"{self.labels['page_label']} {self.page_no()}/{{nb}}", 0, 0, 'C')
 
-def generate_maximalist_report(results, market_df, pdf_path):
-    pdf = DetailedPDF()
+
+def generate_maximalist_report(results, market_df, pdf_path, lang="en"):
+    labels = get_report_labels(lang)
+    pdf = DetailedPDF(labels)
     pdf.alias_nb_pages()
     pdf.add_page()
     
@@ -474,38 +568,35 @@ def generate_maximalist_report(results, market_df, pdf_path):
     spx_total_return = (market_df["^SPX"].iloc[-1] - market_df["^SPX"].iloc[0]) / market_df["^SPX"].iloc[0] * 100
     
     pdf.set_font("Lexend", "", 10)
-    pdf.multi_cell(0, 5, f"Period: {start_date} to {end_date} | Total Trading Days: {len(market_df)}\nBenchmark (SPX) Total Return: {spx_total_return:+.2f}%\n\nBasis: Austro-Georgist Synthesis (18-year Cycle)\nMain Inspiration: Fred Foldvary")
+    overview_text = (
+        f"{labels['period_label']}: {start_date} to {end_date} | {labels['total_days_label']}: {len(market_df)}\n"
+        f"{labels['benchmark_label']}: {spx_total_return:+.2f}%\n\n"
+        f"{labels['basis_label']}\n"
+        f"{labels['inspiration_label']}"
+    )
+    pdf.multi_cell(0, 5, overview_text)
     pdf.ln(5)
 
     # --- GLOSSARY ---
     pdf.set_font("Lexend", "B", 12)
-    pdf.cell(0, 8, "Glossary & Definitions", 0, 1)
+    pdf.cell(0, 8, labels["glossary_title"], 0, 1)
     pdf.set_font("Lexend", "", 9)
-    glossary = (
-        "Win Rate: Percentage of times the asset price INCREASED over the period.\n"
-        "Crash Accuracy: Percentage of times the asset price DECREASED (Correct for Crisis Signals).\n"
-        "Avg Return: The average percentage change in price.\n"
-        "Vol(SD): Standard Deviation of returns (Volatility risk).\n"
-        "COMBO_CRISIS: Simultaneous trigger of Solvency Death (Credit) + Sugar Crash (Euphoria).\n"
-        "NOTE: For Crisis Signals (Red), a high 'Win Rate' means the signal FAILED (market rose).\n"
-        "      A high 'Crash Accuracy' means the signal SUCCEEDED (market fell)."
-    )
-    pdf.multi_cell(0, 5, glossary)
+    pdf.multi_cell(0, 5, labels["glossary_text"])
     pdf.ln(5)
 
     # --- NBER RECESSION ALIGNMENT ---
     if "Depress_NBER_Recession" in results.columns:
         pdf.set_font("Lexend", "B", 12)
-        pdf.cell(0, 8, "NBER Recession Alignment (Context)", 0, 1)
+        pdf.cell(0, 8, labels["nber_title"], 0, 1)
         pdf.set_font("Lexend", "", 9)
-        pdf.multi_cell(0, 4, "Share of signals followed by an NBER recession flag within the 12-month window.")
+        pdf.multi_cell(0, 4, labels["nber_desc"])
         pdf.ln(2)
 
         pdf.set_font("Lexend", "B", 8)
         pdf.set_fill_color(240, 240, 240)
-        pdf.cell(60, 6, "Signal", 1, 0, 'L', 1)
-        pdf.cell(25, 6, "Count", 1, 0, 'C', 1)
-        pdf.cell(25, 6, "NBER Rate", 1, 1, 'C', 1)
+        pdf.cell(60, 6, labels["col_signal"], 1, 0, 'L', 1)
+        pdf.cell(25, 6, labels["col_count"], 1, 0, 'C', 1)
+        pdf.cell(25, 6, labels["col_nber_rate"], 1, 1, 'C', 1)
         pdf.set_font("Lexend", "", 8)
 
         for event in results['Event'].unique():
@@ -521,14 +612,14 @@ def generate_maximalist_report(results, market_df, pdf_path):
         cluster = results[results["IsClusterStart"] == 1]
         if not cluster.empty:
             pdf.set_font("Lexend", "B", 12)
-            pdf.cell(0, 8, "Cluster-Start Summary (De-duplicated)", 0, 1)
+            pdf.cell(0, 8, labels["cluster_title"], 0, 1)
             pdf.set_font("Lexend", "", 9)
-            pdf.multi_cell(0, 4, "Uses only the first signal in each 30-day cluster to reduce autocorrelation. Rates are more conservative.")
+            pdf.multi_cell(0, 4, labels["cluster_desc"])
             pdf.ln(2)
 
             pdf.set_font("Lexend", "B", 8)
             pdf.set_fill_color(240, 240, 240)
-            cols = ["Signal", "Count", "Crash90", "Win180", "Depression", "NBER"]
+            cols = labels["cluster_cols"]
             widths = [60, 14, 16, 16, 20, 14]
             for i, c in enumerate(cols):
                 pdf.cell(widths[i], 6, c, 1, 0, 'C', 1)
@@ -557,7 +648,7 @@ def generate_maximalist_report(results, market_df, pdf_path):
     crisis_events = [e for e in events if "BUY" not in e]
     entry_events = [e for e in events if "BUY" in e]
     
-    for category, event_list in [("Crisis Predictors (Bearish)", crisis_events), ("Entry Signals (Bullish)", entry_events)]:
+    for category, event_list in [(labels["category_crisis"], crisis_events), (labels["category_entry"], entry_events)]:
         if not event_list: continue
         
         pdf.set_fill_color(220, 220, 220)
@@ -568,7 +659,7 @@ def generate_maximalist_report(results, market_df, pdf_path):
         for event in event_list:
             pdf.set_font("Lexend", "B", 11)
             pdf.set_text_color(0, 0, 100)
-            pdf.cell(0, 8, f"SIGNAL: {event}", 0, 1)
+            pdf.cell(0, 8, f"{labels['signal_prefix']}: {event}", 0, 1)
             pdf.set_text_color(0, 0, 0)
             
             sub = results[results['Event'] == event]
@@ -576,7 +667,7 @@ def generate_maximalist_report(results, market_df, pdf_path):
             # Table Header
             pdf.set_font("Lexend", "B", 8)
             pdf.set_fill_color(240, 240, 240)
-            cols = ["Win", "Count", "WinRate", "CrashAcc", "Avg", "Med", "Best", "Worst", "Vol(SD)"]
+            cols = labels["table_cols"]
             w_width = [10, 12, 18, 18, 18, 18, 18, 18, 18]
             
             for i, c in enumerate(cols):
@@ -590,7 +681,7 @@ def generate_maximalist_report(results, market_df, pdf_path):
                 data = sub[col_ret].dropna()
                 
                 if len(data) == 0:
-                    pdf.cell(0, 6, "Insufficient Data", 1, 1)
+                    pdf.cell(0, 6, labels["insufficient"], 1, 1)
                     continue
                 
                 count = len(data)
@@ -632,16 +723,23 @@ def generate_maximalist_report(results, market_df, pdf_path):
                 avg90 = fwd90.mean()
                 crash90 = (fwd90 < 0).sum() / len(fwd90) * 100
                 
-                analysis = "Evaluation: "
+                analysis = f"{labels['evaluation_prefix']} "
                 if "BUY" in event:
-                    if avg90 > 5: analysis += "STRONG BULLISH. Historically profitable entry point. "
-                    elif avg90 > 0: analysis += "MODERATE BULLISH. Positive expectancy but requires patience. "
-                    else: analysis += "WEAK/FAILED ENTRY. Historically loses money. "
+                    if avg90 > 5:
+                        analysis += labels["analysis_buy_strong"]
+                    elif avg90 > 0:
+                        analysis += labels["analysis_buy_moderate"]
+                    else:
+                        analysis += labels["analysis_buy_weak"]
                 else:
-                    if crash90 > 60: analysis += "VALID CRISIS INDICATOR. High probability of market decline. "
-                    elif crash90 < 20: analysis += "CONTRARIAN INDICATOR. Market consistently RIES after this signal (Bullish). "
-                    elif abs(avg90) < 2: analysis += "STAGNATION SIGNAL. Market tends to move sideways (Choppy). "
-                    else: analysis += "NOISE / LOW PREDICTIVE VALUE. "
+                    if crash90 > 60:
+                        analysis += labels["analysis_crisis_valid"]
+                    elif crash90 < 20:
+                        analysis += labels["analysis_crisis_contrarian"]
+                    elif abs(avg90) < 2:
+                        analysis += labels["analysis_crisis_stagnation"]
+                    else:
+                        analysis += labels["analysis_crisis_noise"]
                 
                 pdf.multi_cell(0, 4, analysis)
             
@@ -651,7 +749,7 @@ def generate_maximalist_report(results, market_df, pdf_path):
     print(f"PDF Generated: {pdf_path}")
 
 
-def generate_walkforward_summary(results, output_dir, suffix, docs_dir):
+def generate_walkforward_summary(results, output_dir, suffix, docs_dir, lang="en"):
     """
     Builds a walk-forward summary table by year/event using only signals
     with a full 12-month forward window available.
@@ -689,14 +787,24 @@ def generate_walkforward_summary(results, output_dir, suffix, docs_dir):
 
     # Minimal markdown summary for key depression signals
     key_events = ["DEPRESSION_ALERT", "DEPRESSION_WATCH", "COMBO_CRISIS"]
-    lines = [
-        "# Walk-Forward Summary",
-        f"**Date generated:** {datetime.now().strftime('%Y-%m-%d')}",
-        "",
-        "Summary uses only signals with a full 12-month forward window available.",
-        "Rates are computed per calendar year and then aggregated below for key signals.",
-        ""
-    ]
+    if lang == "es":
+        lines = [
+            "# Resumen Walk-Forward",
+            f"**Fecha de generación:** {datetime.now().strftime('%Y-%m-%d')}",
+            "",
+            "El resumen usa solo señales con una ventana completa de 12 meses hacia adelante.",
+            "Las tasas se calculan por año calendario y luego se agregan para señales clave.",
+            ""
+        ]
+    else:
+        lines = [
+            "# Walk-Forward Summary",
+            f"**Date generated:** {datetime.now().strftime('%Y-%m-%d')}",
+            "",
+            "Summary uses only signals with a full 12-month forward window available.",
+            "Rates are computed per calendar year and then aggregated below for key signals.",
+            ""
+        ]
 
     for ev in key_events:
         sub = df[df["Event"] == ev]
@@ -706,14 +814,22 @@ def generate_walkforward_summary(results, output_dir, suffix, docs_dir):
         nber_rate = sub["Depress_NBER_Recession"].mean() * 100 if "Depress_NBER_Recession" in sub.columns else 0
         crash90 = (sub["Fwd_90d"] < 0).mean() * 100 if "Fwd_90d" in sub.columns else 0
         win180 = (sub["Fwd_180d"] > 0).mean() * 100 if "Fwd_180d" in sub.columns else 0
-        lines.append(f"- **{ev}:** count {len(sub)}, depression {dep_rate:.1f}%, NBER {nber_rate:.1f}%, 90d crash {crash90:.1f}%, 180d win {win180:.1f}%.")
+        if lang == "es":
+            lines.append(
+                f"- **{ev}:** conteo {len(sub)}, depresión {dep_rate:.1f}%, NBER {nber_rate:.1f}%, crash 90d {crash90:.1f}%, ganancia 180d {win180:.1f}%."
+            )
+        else:
+            lines.append(
+                f"- **{ev}:** count {len(sub)}, depression {dep_rate:.1f}%, NBER {nber_rate:.1f}%, 90d crash {crash90:.1f}%, 180d win {win180:.1f}%."
+            )
 
     docs_dir.mkdir(exist_ok=True)
-    md_path = docs_dir / f"WALKFORWARD_SUMMARY{suffix}.md"
+    lang_suffix = "" if lang == "en" else "_es"
+    md_path = docs_dir / f"WALKFORWARD_SUMMARY{suffix}{lang_suffix}.md"
     md_path.write_text("\n".join(lines) + "\n")
 
 
-def generate_regime_split_summary(results, output_dir, suffix, docs_dir):
+def generate_regime_split_summary(results, output_dir, suffix, docs_dir, lang="en"):
     """
     Builds a rolling 5-year window summary by event.
     Intended to show regime sensitivity of signals.
@@ -760,14 +876,24 @@ def generate_regime_split_summary(results, output_dir, suffix, docs_dir):
     summary.to_csv(output_dir / f"regime_split_summary{suffix}.csv", index=False)
 
     key_events = ["DEPRESSION_ALERT", "DEPRESSION_WATCH", "COMBO_CRISIS"]
-    lines = [
-        "# Regime Split Summary",
-        f"**Date generated:** {datetime.now().strftime('%Y-%m-%d')}",
-        "",
-        "Rolling five-year windows (start year to start+4).",
-        "Only signals with a full 12-month forward window are included.",
-        ""
-    ]
+    if lang == "es":
+        lines = [
+            "# Resumen por Régimen",
+            f"**Fecha de generación:** {datetime.now().strftime('%Y-%m-%d')}",
+            "",
+            "Ventanas móviles de cinco años (año inicial a inicial+4).",
+            "Solo se incluyen señales con ventana completa de 12 meses.",
+            ""
+        ]
+    else:
+        lines = [
+            "# Regime Split Summary",
+            f"**Date generated:** {datetime.now().strftime('%Y-%m-%d')}",
+            "",
+            "Rolling five-year windows (start year to start+4).",
+            "Only signals with a full 12-month forward window are included.",
+            ""
+        ]
 
     for event in key_events:
         sub = summary[summary["Event"] == event]
@@ -775,8 +901,12 @@ def generate_regime_split_summary(results, output_dir, suffix, docs_dir):
             continue
         lines.append(f"## {event}")
         top = sub.sort_values(["DepressionRate", "Count"], ascending=[False, False]).head(5)
-        lines.append("| Window | Count | Depression | NBER | Crash90 | Win180 |")
-        lines.append("| --- | --- | --- | --- | --- | --- |")
+        if lang == "es":
+            lines.append("| Ventana | Conteo | Depresión | NBER | Crash90 | Ganancia180 |")
+            lines.append("| --- | --- | --- | --- | --- | --- |")
+        else:
+            lines.append("| Window | Count | Depression | NBER | Crash90 | Win180 |")
+            lines.append("| --- | --- | --- | --- | --- | --- |")
         for _, row in top.iterrows():
             window_label = f"{row['WindowStart']} → {row['WindowEnd']}"
             lines.append(
@@ -785,7 +915,8 @@ def generate_regime_split_summary(results, output_dir, suffix, docs_dir):
         lines.append("")
 
     docs_dir.mkdir(exist_ok=True)
-    md_path = docs_dir / f"REGIME_SPLIT_SUMMARY{suffix}.md"
+    lang_suffix = "" if lang == "en" else "_es"
+    md_path = docs_dir / f"REGIME_SPLIT_SUMMARY{suffix}{lang_suffix}.md"
     md_path.write_text("\n".join(lines) + "\n")
 
 
@@ -847,9 +978,14 @@ def run_backtest():
         df.to_csv(output_dir / f"scientific_backtest{suffix}.csv", index=False)
 
         pdf_path = output_dir / f"comprehensive_backtest_report{suffix}.pdf"
-        generate_maximalist_report(df, market_df, pdf_path)
-        generate_walkforward_summary(df, output_dir, suffix, docs_dir)
-        generate_regime_split_summary(df, output_dir, suffix, docs_dir)
+        generate_maximalist_report(df, market_df, pdf_path, lang="en")
+        pdf_path_es = output_dir / f"comprehensive_backtest_report{suffix}_es.pdf"
+        generate_maximalist_report(df, market_df, pdf_path_es, lang="es")
+
+        generate_walkforward_summary(df, output_dir, suffix, docs_dir, lang="en")
+        generate_walkforward_summary(df, output_dir, suffix, docs_dir, lang="es")
+        generate_regime_split_summary(df, output_dir, suffix, docs_dir, lang="en")
+        generate_regime_split_summary(df, output_dir, suffix, docs_dir, lang="es")
     else:
         print("No signals.")
 

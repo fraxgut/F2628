@@ -74,6 +74,7 @@ python sentinel.py
 ## Utilities
 - `python scripts/backfill_history.py` - backfills the SQLite history using current data sources.
 - `python scripts/calibrate_regime.py` - creates `output/regime_calibration.json` using USREC outcomes (F1-optimised thresholds).
+- `python generate_manual.py` - builds ES/EN signal manuals (`es-foldvarysignalmanual.pdf`, `en-foldvarysignalmanual.pdf`).
 
 ## How it works
 
@@ -132,8 +133,9 @@ Note that FRED data (especially `WALCL`) updates weekly, not daily. The 10-day S
 - Latest results: `output/maximalist_backtest.csv`
 - Depression proxy summary: `docs/DEPRESSION_BACKTEST_SUMMARY.md`
 - Combo analysis output: `output/combo_analysis.csv`
-- Walk-forward summary: `docs/WALKFORWARD_SUMMARY.md`
-- Regime split summary: `docs/REGIME_SPLIT_SUMMARY.md`
+- Walk-forward summary: `docs/WALKFORWARD_SUMMARY.md` (EN) and `docs/WALKFORWARD_SUMMARY_es.md` (ES)
+- Regime split summary: `docs/REGIME_SPLIT_SUMMARY.md` (EN) and `docs/REGIME_SPLIT_SUMMARY_es.md` (ES)
+- Comprehensive report: `output/comprehensive_backtest_report.pdf` (EN) and `output/comprehensive_backtest_report_es.pdf` (ES)
 
 Backtests now request data from 1916, but actual coverage depends on source availability (market data begins later than FRED and housing data starts in 1959). The reports log the effective start dates.
 

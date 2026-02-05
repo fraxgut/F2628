@@ -148,11 +148,15 @@ def clean_old_signals(state, current_date, window_days=30):
     if "recent_signals" not in state:
         return
 
+    if current_date.tzinfo is not None:
+        current_date = current_date.replace(tzinfo=None)
+    current_day = current_date.date()
+
     for signal_name in state["recent_signals"]:
         # Filter out dates older than window_days
         state["recent_signals"][signal_name] = [
             date_str for date_str in state["recent_signals"][signal_name]
-            if (current_date - datetime.strptime(date_str, "%Y-%m-%d")).days <= window_days
+            if (current_day - datetime.strptime(date_str, "%Y-%m-%d").date()).days <= window_days
         ]
 
 
