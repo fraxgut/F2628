@@ -36,7 +36,14 @@ Fork this repo, then add secrets under Settings > Secrets > Actions:
 - `REGIME_Z_PHASE2_ENTER/EXIT`, `REGIME_Z_PHASE3_ENTER/EXIT` - Z-score thresholds for hysteresis
 - `REGIME_PCT_PHASE2_ENTER/EXIT`, `REGIME_PCT_PHASE3_ENTER/EXIT` - Percentile thresholds for hysteresis
 - `REGIME_CALIBRATION_PATH` - Optional JSON calibration file path (default: `output/regime_calibration.json`)
+- `CALIBRATION_VALUE_TYPE` - `percentile`, `zscore`, or `absolute` (default: `percentile`)
+- `CALIBRATION_MIN_SAMPLES` - Minimum samples for calibration (default: `120`)
+- `CALIBRATION_LOOKAHEAD_PHASE2_DAYS` - Horizon for phase 2 calibration (default: `365`)
+- `CALIBRATION_LOOKAHEAD_PHASE3_DAYS` - Horizon for phase 3 calibration (default: `180`)
 - `PHASE_2_THRESHOLD/EXIT`, `PHASE_3_THRESHOLD/EXIT` - Absolute thresholds for fallback hysteresis
+- `BACKFILL_DAYS` - Days to backfill when running `scripts/backfill_history.py`
+- `BACKFILL_START_DATE` / `BACKFILL_END_DATE` - Optional YYYY-MM-DD bounds for backfill
+- `BACKFILL_SYNC_GIST` - Set `true` to sync backfilled DB to gist
 If `GIST_TOKEN` and `STATE_GIST_ID` are set, the history database is synced into the same gist using the `HISTORY_GIST_FILENAME` file.
 
 See [SETUP_EXIT_SIGNALS.md](SETUP_EXIT_SIGNALS.md) for detailed instructions on enabling exit signals.
@@ -63,6 +70,10 @@ python sentinel.py
 ## Checks
 - `python scripts/check_alert_format.py` - validates the Telegram HTML sanitiser strips Markdown tokens.
 - `python scripts/check_history_store.py` - validates SQLite history/regime calculations.
+
+## Utilities
+- `python scripts/backfill_history.py` - backfills the SQLite history using current data sources.
+- `python scripts/calibrate_regime.py` - creates `output/regime_calibration.json` using USREC outcomes (F1-optimised thresholds).
 
 ## How it works
 

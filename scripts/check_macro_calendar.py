@@ -1,7 +1,7 @@
 import ast
-from datetime import datetime
-from pathlib import Path
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
 
 def fail(msg):
@@ -43,7 +43,7 @@ def main():
         fail("No date keys found in macro calendar.")
 
     max_year = max(years)
-    current_year = datetime.now().year
+    current_year = datetime.now(timezone.utc).year
     if current_year > max_year:
         fail(f"Macro calendar out of date (last year {max_year}, current {current_year}).")
 

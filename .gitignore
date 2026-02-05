@@ -220,6 +220,7 @@ signal_combinations_*.csv
 *.pdf
 generate_backtest_report.py
 output/history.db*
+output/regime_calibration.json
 
 # Test files
 test_*.py

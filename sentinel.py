@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pandas_datareader.data as web
@@ -43,8 +43,8 @@ REGIME_WINDOW_DAYS = int(os.environ.get("REGIME_WINDOW_DAYS", "14"))
 REGIME_TREND_DAYS = int(os.environ.get("REGIME_TREND_DAYS", "7"))
 REGIME_MIN_DAYS = int(os.environ.get("REGIME_MIN_DAYS", "7"))
 
-# Initialize the new Client
-client = genai.Client(api_key=GEMINI_KEY)
+# Initialize the new Client (only if key is present)
+client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 
 # --- STATE PERSISTENCE (GITHUB GIST) ---
@@ -77,7 +77,7 @@ def load_state():
             "FLASH_MOVE": []
         },
         "daily_alerts": {
-            "date": datetime.now().strftime("%Y-%m-%d"),
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             "sent_events": []
         }
     }
@@ -104,7 +104,7 @@ def load_state():
                 state["recent_signals"].setdefault(key, [])
 
         # Ensure daily_alerts exists and is for today (reset if new day)
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if "daily_alerts" not in state or state["daily_alerts"].get("date") != today_str:
             state["daily_alerts"] = {
                 "date": today_str,
@@ -349,7 +349,7 @@ def normalize_tnx(series):
     return series
 
 
-def get_data():
+def get_data(start_date=None, end_date=None):
     """
     Fetches market data from Yahoo Finance and macro data from FRED.
     Returns close prices, WPM full OHLCV, and FRED macro indicators.
@@ -357,8 +357,16 @@ def get_data():
 
     Note: Fetches 365 days (250+ trading days) to support adaptive thresholds.
     """
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=365)
+    cache_dir = os.environ.get("YFINANCE_CACHE_DIR", "/tmp/yfinance-cache")
+    try:
+        yf.set_tz_cache_location(cache_dir)
+    except Exception as e:
+        print(f"YFinance cache setup warning: {e}")
+
+    end_date = end_date or datetime.now(timezone.utc)
+    if end_date.tzinfo is not None:
+        end_date = end_date.replace(tzinfo=None)
+    start_date = start_date or (end_date - timedelta(days=365))
 
     print("Fetching Market Data...")
 
@@ -464,7 +472,10 @@ def get_data():
 
     # FRED Housing Data (longer lookback needed for monthly/quarterly series)
     print("Fetching FRED Housing Data...")
-    housing_start = end_date - timedelta(days=730)
+    if start_date:
+        housing_start = start_date - timedelta(days=730)
+    else:
+        housing_start = end_date - timedelta(days=730)
     try:
         housing_data = web.DataReader(
             ["HOUST", "MORTGAGE30US", "CSUSHPINSA", "DRSFRMACBS"],
@@ -555,12 +566,12 @@ def calculate_percentile_threshold(series, window=250, percentile=95):
 
 
 # --- THE LOGIC CORE ---
-def analyse_market(df, wpm_df, fred_df, housing_df, state):
+def analyse_market(df, wpm_df, fred_df, housing_df, state, end_date=None):
     """
     Analyses raw data against the Foldvary parameters.
     Also checks for exit signals if positions are held.
     """
-    end_date = datetime.now()
+    end_date = end_date or datetime.now(timezone.utc)
 
     if df.empty:
         return {"event": "DATA_OUTAGE", "missing": ["all_market_data"]}
@@ -1042,7 +1053,7 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state):
             state_update["btc_entry_price"] = btc
 
     if (buy_wpm and not sell_wpm and not sell_all) or (buy_btc and not sell_btc and not sell_all):
-        state_update["last_buy_ts"] = datetime.utcnow().isoformat()
+        state_update["last_buy_ts"] = datetime.now(timezone.utc).isoformat()
 
     # Track crisis signals for temporal combo detection
     tracked_signals = ["SOLVENCY_DEATH", "SUGAR_CRASH", "EM_CURRENCY_STRESS", "WAR_PROTOCOL",
@@ -1101,7 +1112,9 @@ def generate_alert_text(data):
     """
     Sends raw data to Gemini using the new SDK with retry logic.
     """
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    if not client:
+        return sanitize_telegram_html(f"Error en IA: GEMINI_API_KEY no configurada. Datos crudos: {data}")
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     event = data.get("event", "NORMAL")
 
     # Build clean data payload (exclude internal fields)
@@ -1397,10 +1410,10 @@ def update_regime_context(analysis):
 
         history_store.ensure_db(HISTORY_DB_PATH)
 
-        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         snapshot = {
             "date": date_str,
-            "run_ts": datetime.utcnow().isoformat(),
+            "run_ts": datetime.now(timezone.utc).isoformat(),
             "event": analysis.get("event"),
             "stress_score": analysis.get("stress_score"),
             "stress_level": analysis.get("stress_level"),
@@ -1488,7 +1501,7 @@ if __name__ == "__main__":
             for key, value in analysis["state_update"].items():
                 state[key] = value
 
-        current_hour = datetime.utcnow().hour
+        current_hour = datetime.now(timezone.utc).hour
         is_manual_run = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
         should_send = False
         detected_event = analysis["event"]
@@ -1496,7 +1509,7 @@ if __name__ == "__main__":
         # --- SMART NOTIFICATION LOGIC ---
         if detected_event == "DATA_OUTAGE":
             missing = ", ".join(analysis["missing"])
-            today_str = datetime.now().strftime("%Y-%m-%d")
+            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             outage_msg = (
                 f"<b>🚨 ERROR CRÍTICO | FALLO DE DATOS</b>\n\n"
                 f"<b>Fecha:</b> {today_str}\n"

@@ -2,7 +2,7 @@ import base64
 import json
 import os
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -188,11 +188,21 @@ def fetch_recent_history(db_path, limit):
     return [dict(row) for row in reversed(rows)]
 
 
+def fetch_history(db_path):
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM daily_snapshots ORDER BY date ASC"
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
 def prune_history(db_path, retention_days):
     if retention_days <= 0:
         return
 
-    cutoff = (datetime.utcnow().date() - timedelta(days=retention_days)).isoformat()
+    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=retention_days)).isoformat()
     with sqlite3.connect(db_path) as conn:
         conn.execute("DELETE FROM daily_snapshots WHERE date < ?", (cutoff,))
         conn.commit()
