@@ -126,17 +126,20 @@ def main():
 
         history_store.upsert_daily_snapshot(db_path, snapshot)
 
+        risk_window = int(os.environ.get("RISK_WINDOW_DAYS", os.environ.get("REGIME_WINDOW_DAYS", "14")))
+        risk_trend = int(os.environ.get("RISK_TREND_DAYS", os.environ.get("REGIME_TREND_DAYS", "7")))
+        risk_min = int(os.environ.get("RISK_MIN_DAYS", os.environ.get("REGIME_MIN_DAYS", "7")))
         history_limit = max(
-            int(os.environ.get("REGIME_WINDOW_DAYS", "14")),
-            int(os.environ.get("REGIME_MIN_DAYS", "7")),
-            int(os.environ.get("REGIME_TREND_DAYS", "7")) * 2,
+            risk_window,
+            risk_min,
+            risk_trend * 2,
         )
         history_rows = history_store.fetch_recent_history(db_path, history_limit)
         regime = history_store.compute_regime(
             history_rows,
-            int(os.environ.get("REGIME_WINDOW_DAYS", "14")),
-            int(os.environ.get("REGIME_TREND_DAYS", "7")),
-            int(os.environ.get("REGIME_MIN_DAYS", "7")),
+            risk_window,
+            risk_trend,
+            risk_min,
         )
         history_store.update_regime_fields(db_path, date_str, regime)
 

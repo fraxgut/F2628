@@ -39,9 +39,12 @@ HOUSING_STALE_DAYS = {
 HISTORY_DB_PATH = os.environ.get("HISTORY_DB_PATH", os.path.join("output", "history.db"))
 HISTORY_GIST_FILENAME = os.environ.get("HISTORY_GIST_FILENAME", "history.db.b64")
 HISTORY_RETENTION_DAYS = int(os.environ.get("HISTORY_RETENTION_DAYS", "365"))
-REGIME_WINDOW_DAYS = int(os.environ.get("REGIME_WINDOW_DAYS", "14"))
-REGIME_TREND_DAYS = int(os.environ.get("REGIME_TREND_DAYS", "7"))
-REGIME_MIN_DAYS = int(os.environ.get("REGIME_MIN_DAYS", "7"))
+RISK_WINDOW_DAYS = int(os.environ.get("RISK_WINDOW_DAYS", os.environ.get("REGIME_WINDOW_DAYS", "14")))
+RISK_TREND_DAYS = int(os.environ.get("RISK_TREND_DAYS", os.environ.get("REGIME_TREND_DAYS", "7")))
+RISK_MIN_DAYS = int(os.environ.get("RISK_MIN_DAYS", os.environ.get("REGIME_MIN_DAYS", "7")))
+CYCLE_LOOKBACK_DAYS = int(os.environ.get("CYCLE_LOOKBACK_DAYS", str(365 * 10)))
+CYCLE_TREND_MONTHS = int(os.environ.get("CYCLE_TREND_MONTHS", "12"))
+CYCLE_STARTS_Z_MONTHS = int(os.environ.get("CYCLE_STARTS_Z_MONTHS", "60"))
 
 # Initialize the new Client (only if key is present)
 client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
@@ -477,9 +480,9 @@ def get_data(start_date=None, end_date=None):
     # FRED Housing Data (longer lookback needed for monthly/quarterly series)
     print("Fetching FRED Housing Data...")
     if start_date:
-        housing_start = start_date - timedelta(days=730)
+        housing_start = start_date - timedelta(days=CYCLE_LOOKBACK_DAYS)
     else:
-        housing_start = end_date - timedelta(days=730)
+        housing_start = end_date - timedelta(days=CYCLE_LOOKBACK_DAYS)
     try:
         housing_data = web.DataReader(
             ["HOUST", "MORTGAGE30US", "CSUSHPINSA", "DRSFRMACBS"],
@@ -567,6 +570,169 @@ def calculate_percentile_threshold(series, window=250, percentile=95):
     current_pctl = (recent_data < current_value).sum() / len(recent_data) * 100
 
     return threshold, current_pctl
+
+
+def compute_cycle_context(housing_df):
+    """
+    Builds long-cycle context from housing/credit fundamentals.
+    Uses multi-year windows and monthly data (not short-term risk regime).
+    """
+    if housing_df is None or housing_df.empty:
+        return {
+            "cycle_phase": None,
+            "cycle_trend": None,
+            "cycle_confidence": None,
+        }
+
+    if not isinstance(housing_df.index, pd.DatetimeIndex):
+        return {
+            "cycle_phase": None,
+            "cycle_trend": None,
+            "cycle_confidence": None,
+        }
+
+    monthly = housing_df.resample("M").last().ffill()
+    if monthly.empty:
+        return {
+            "cycle_phase": None,
+            "cycle_trend": None,
+            "cycle_confidence": None,
+        }
+
+    def _series(name):
+        if name not in monthly.columns:
+            return None
+        series = monthly[name].dropna()
+        return series if len(series) >= 2 else None
+
+    starts = _series("HOUST")
+    mortgage = _series("MORTGAGE30US")
+    prices = _series("CSUSHPINSA")
+    delinq = _series("DRSFRMACBS")
+
+    available_series = [s for s in (starts, mortgage, prices, delinq) if s is not None]
+    if not available_series:
+        return {
+            "cycle_phase": None,
+            "cycle_trend": None,
+            "cycle_confidence": None,
+        }
+
+    max_months = max(len(s) for s in available_series)
+
+    def _score_at(pos):
+        pressure = 0
+        spec = 0
+        metrics_used = 0
+
+        if starts is not None:
+            starts_hist = starts.iloc[:pos + 1].dropna()
+            if len(starts_hist) >= CYCLE_STARTS_Z_MONTHS:
+                window = starts_hist.iloc[-CYCLE_STARTS_Z_MONTHS:]
+                mean = window.mean()
+                std = window.std()
+                if std > 0:
+                    starts_z = (window.iloc[-1] - mean) / std
+                else:
+                    starts_z = 0
+                metrics_used += 1
+                if starts_z < -1.0:
+                    pressure += 2
+                if starts_z > 0.5:
+                    spec += 1
+            if len(starts_hist) >= 36:
+                ma_short = starts_hist.iloc[-12:].mean()
+                ma_long = starts_hist.iloc[-36:].mean()
+                if ma_long > 0:
+                    starts_trend = (ma_short - ma_long) / ma_long * 100
+                    metrics_used += 1
+                    if starts_trend < -3.0:
+                        pressure += 1
+                    if starts_trend > 3.0:
+                        spec += 1
+
+        if mortgage is not None:
+            mort_hist = mortgage.iloc[:pos + 1].dropna()
+            if len(mort_hist) >= 60:
+                mort_avg = mort_hist.iloc[-60:].mean()
+                gap = mort_hist.iloc[-1] - mort_avg
+                metrics_used += 1
+                if gap > 0.75:
+                    pressure += 1
+                if gap <= 0.0:
+                    spec += 1
+
+        if delinq is not None:
+            del_hist = delinq.iloc[:pos + 1].dropna()
+            if len(del_hist) >= 13:
+                change = del_hist.iloc[-1] - del_hist.iloc[-13]
+                metrics_used += 1
+                if change > 0.2:
+                    pressure += 1
+
+        if prices is not None:
+            price_hist = prices.iloc[:pos + 1].dropna()
+            if len(price_hist) >= 13:
+                yoy = (price_hist.iloc[-1] / price_hist.iloc[-13] - 1) * 100
+                metrics_used += 1
+                if yoy < 0:
+                    pressure += 1
+                if yoy >= 6:
+                    spec += 1
+            if len(price_hist) >= 7:
+                sixm = (price_hist.iloc[-1] / price_hist.iloc[-7] - 1) * 100
+                metrics_used += 1
+                if sixm >= 3:
+                    spec += 1
+
+        cycle_index = pressure + (spec * 0.5)
+        return {
+            "pressure": pressure,
+            "spec": spec,
+            "metrics_used": metrics_used,
+            "cycle_index": cycle_index,
+        }
+
+    last_pos = max_months - 1
+    current = _score_at(last_pos)
+    if not current or current["metrics_used"] == 0:
+        return {
+            "cycle_phase": None,
+            "cycle_trend": None,
+            "cycle_confidence": None,
+        }
+
+    pressure = current["pressure"]
+    spec = current["spec"]
+    if pressure >= 4:
+        phase = "Fase 3 - QUIEBRE"
+    elif spec >= 2 or pressure >= 3:
+        phase = "Fase 2 - ESPECULACIÓN"
+    else:
+        phase = "Fase 1 - AUGE"
+
+    trend = "Estable"
+    if last_pos >= CYCLE_TREND_MONTHS:
+        previous = _score_at(last_pos - CYCLE_TREND_MONTHS)
+        if previous and previous["metrics_used"] > 0:
+            delta = current["cycle_index"] - previous["cycle_index"]
+            if delta >= 1:
+                trend = "Ascendente"
+            elif delta <= -1:
+                trend = "Descendente"
+
+    if max_months >= 72 and current["metrics_used"] >= 4:
+        confidence = "Alta"
+    elif max_months >= 36 and current["metrics_used"] >= 3:
+        confidence = "Media"
+    else:
+        confidence = "Baja"
+
+    return {
+        "cycle_phase": phase,
+        "cycle_trend": trend,
+        "cycle_confidence": confidence,
+    }
 
 
 # --- THE LOGIC CORE ---
@@ -1068,6 +1234,7 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state, end_date=None):
 
     trigger_events = [evt for evt, _ in active_triggers]
 
+    cycle_context = compute_cycle_context(housing_df)
     macro_event, calendar_warning = get_macro_event(end_date)
 
     return {
@@ -1076,6 +1243,9 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state, end_date=None):
         "stress_level": stress_level,
         "stress_score": stress_score,
         "phase_daily": phase_daily,
+        "cycle_phase": cycle_context.get("cycle_phase"),
+        "cycle_trend": cycle_context.get("cycle_trend"),
+        "cycle_confidence": cycle_context.get("cycle_confidence"),
         "trigger_events": trigger_events,
         "state_update": state_update,
         "us10y": round(us10y, 2) if us10y else 0,
@@ -1168,10 +1338,13 @@ IMPORTANTE: Entre cada sección usa EXACTAMENTE UN salto de línea (no dos).
 4. <b><u>Estado del Sistema</u></b>
    - <b>Estrés:</b> {{stress_level}}
    - <b>Señal:</b> {{reason}}
-   {"- <b>Régimen de Ciclo (" + str(data.get('regime_window_days')) + "d):</b> " + str(data.get('regime_phase')) if data.get('regime_phase') else ""}
-   {"- <b>Tendencia Régimen:</b> " + str(data.get('regime_trend')) if data.get('regime_trend') else ""}
+   {"- <b>Ciclo (Largo Plazo):</b> " + str(data.get('cycle_phase')) if data.get('cycle_phase') else ""}
+   {"- <b>Tendencia Ciclo:</b> " + str(data.get('cycle_trend')) if data.get('cycle_trend') else ""}
+   {"- <b>Confianza Ciclo:</b> " + str(data.get('cycle_confidence')) if data.get('cycle_confidence') else ""}
+   {"- <b>Régimen de Riesgo (" + str(data.get('regime_window_days')) + "d):</b> " + str(data.get('regime_phase')) if data.get('regime_phase') else ""}
+   {"- <b>Tendencia Riesgo:</b> " + str(data.get('regime_trend')) if data.get('regime_trend') else ""}
+   {"- <b>Confianza Riesgo:</b> " + str(data.get('regime_confidence')) if data.get('regime_confidence') else ""}
    {"- <b>Fase Diaria:</b> " + str(data.get('phase_daily')) if data.get('phase_daily') else ""}
-   {"- <b>Confianza Régimen:</b> " + str(data.get('regime_confidence')) if data.get('regime_confidence') else ""}
    {"- <b>Vigilancia Depresión:</b> " + ("ALERTA (riesgo sistémico prolongado)" if event == "DEPRESSION_ALERT" else "WATCH (fragilidad estructural)") if event in ("DEPRESSION_ALERT", "DEPRESSION_WATCH") else ""}
    {"- <b>Evento Macro:</b> " + str(data.get('macro_event')) if data.get('macro_event') else ""}
    {"- <b>Calendario Macro:</b> " + str(data.get('calendar_warning')) if data.get('calendar_warning') else ""}
@@ -1217,7 +1390,7 @@ IMPORTANTE: Entre cada sección usa EXACTAMENTE UN salto de línea (no dos).
    - <b>Morosidad:</b> {data.get('delinquency_rate')}%
    [UN salto de línea]
 6. <b><u>Análisis</u></b>
-   Párrafo(s) de análisis. Comienza con la fecha: "{today_str} -". Conecta los datos con la fase del ciclo (Auge, Especulación, o Quiebre). Identifica qué fase estamos transitando. Varía la redacción cada día. Si hay macro_event, úsalo como contexto. Si existe "Régimen de Ciclo", úsalo como fase principal; si la Fase Diaria difiere, descríbelo como un shock puntual sin declarar cambio de fase salvo persistencia.
+   Párrafo(s) de análisis. Comienza con la fecha: "{today_str} -". Conecta los datos con la fase del ciclo (Auge, Especulación, o Quiebre). Identifica qué fase estamos transitando. Varía la redacción cada día. Si hay macro_event, úsalo como contexto. Si existe "Ciclo (Largo Plazo)", úsalo como fase principal. Si el "Régimen de Riesgo" o la "Fase Diaria" difieren, descríbelo como estrés táctico/puntual y NO como cambio de ciclo salvo persistencia. Nunca llames "ciclo" al régimen de riesgo.
 
    IMPORTANTE: NO menciones códigos internos de señales (HOUSING_BUST, SOLVENCY_DEATH, etc.) en el análisis. NUNCA digas "la señal X no se activó". Habla como un economista, no como un script. NUNCA digas "Foldvary".
 
@@ -1395,7 +1568,7 @@ REGLAS FINALES
 
 def update_regime_context(analysis):
     """
-    Persists daily snapshots in SQLite and enriches the analysis with a multi-day regime.
+    Persists daily snapshots in SQLite and enriches the analysis with a multi-day risk regime.
     """
     if not analysis or "stress_score" not in analysis:
         return analysis
@@ -1442,9 +1615,9 @@ def update_regime_context(analysis):
         history_store.upsert_daily_snapshot(HISTORY_DB_PATH, snapshot)
         history_store.prune_history(HISTORY_DB_PATH, HISTORY_RETENTION_DAYS)
 
-        history_limit = max(REGIME_WINDOW_DAYS, REGIME_MIN_DAYS, REGIME_TREND_DAYS * 2)
+        history_limit = max(RISK_WINDOW_DAYS, RISK_MIN_DAYS, RISK_TREND_DAYS * 2)
         history_rows = history_store.fetch_recent_history(HISTORY_DB_PATH, history_limit)
-        regime = history_store.compute_regime(history_rows, REGIME_WINDOW_DAYS, REGIME_TREND_DAYS, REGIME_MIN_DAYS)
+        regime = history_store.compute_regime(history_rows, RISK_WINDOW_DAYS, RISK_TREND_DAYS, RISK_MIN_DAYS)
 
         analysis.update(regime)
         history_store.update_regime_fields(HISTORY_DB_PATH, date_str, regime)
