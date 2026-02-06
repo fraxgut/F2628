@@ -572,6 +572,22 @@ def calculate_percentile_threshold(series, window=250, percentile=95):
     return threshold, current_pctl
 
 
+def map_risk_level(phase_label):
+    """
+    Maps phase labels to risk-level labels without using the word "Fase".
+    """
+    if not phase_label:
+        return None
+    mapping = {
+        "Fase 1 - AUGE": "Nivel 1 - Bajo",
+        "Fase 2 - ESPECULACIÓN": "Nivel 2 - Elevado",
+        "Fase 3 - QUIEBRE": "Nivel 3 - Crítico",
+    }
+    if phase_label in mapping:
+        return mapping[phase_label]
+    return phase_label.replace("Fase", "Nivel")
+
+
 def compute_cycle_context(housing_df):
     """
     Builds long-cycle context from housing/credit fundamentals.
@@ -1128,6 +1144,7 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state, end_date=None):
     else: stress_level = "CRÍTICO (Riesgo Sistémico)"
 
     phase_daily = history_store.phase_from_score(stress_score)
+    risk_daily_label = map_risk_level(phase_daily)
 
     # --- EXIT SIGNALS ---
     # Exit signals only fire if we have open positions (tracked in state).
@@ -1243,6 +1260,7 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state, end_date=None):
         "stress_level": stress_level,
         "stress_score": stress_score,
         "phase_daily": phase_daily,
+        "risk_daily_label": risk_daily_label,
         "cycle_phase": cycle_context.get("cycle_phase"),
         "cycle_trend": cycle_context.get("cycle_trend"),
         "cycle_confidence": cycle_context.get("cycle_confidence"),
@@ -1297,10 +1315,14 @@ def generate_alert_text(data):
         "trigger_events",
         "stress_score",
         "phase_score",
+        "phase_daily",
+        "risk_daily_label",
+        "regime_phase",
         "regime_score",
         "regime_method",
         "regime_value",
         "regime_trend_score",
+        "risk_regime_label",
     }
     market_data = {k: v for k, v in data.items() if k not in internal_fields}
 
@@ -1341,10 +1363,10 @@ IMPORTANTE: Entre cada sección usa EXACTAMENTE UN salto de línea (no dos).
    {"- <b>Ciclo (Largo Plazo):</b> " + str(data.get('cycle_phase')) if data.get('cycle_phase') else ""}
    {"- <b>Tendencia Ciclo:</b> " + str(data.get('cycle_trend')) if data.get('cycle_trend') else ""}
    {"- <b>Confianza Ciclo:</b> " + str(data.get('cycle_confidence')) if data.get('cycle_confidence') else ""}
-   {"- <b>Régimen de Riesgo (" + str(data.get('regime_window_days')) + "d):</b> " + str(data.get('regime_phase')) if data.get('regime_phase') else ""}
+   {"- <b>Régimen de Riesgo (" + str(data.get('regime_window_days')) + "d):</b> " + str(data.get('risk_regime_label')) if data.get('risk_regime_label') else ""}
    {"- <b>Tendencia Riesgo:</b> " + str(data.get('regime_trend')) if data.get('regime_trend') else ""}
    {"- <b>Confianza Riesgo:</b> " + str(data.get('regime_confidence')) if data.get('regime_confidence') else ""}
-   {"- <b>Fase Diaria:</b> " + str(data.get('phase_daily')) if data.get('phase_daily') else ""}
+   {"- <b>Riesgo Diario:</b> " + str(data.get('risk_daily_label')) if data.get('risk_daily_label') else ""}
    {"- <b>Vigilancia Depresión:</b> " + ("ALERTA (riesgo sistémico prolongado)" if event == "DEPRESSION_ALERT" else "WATCH (fragilidad estructural)") if event in ("DEPRESSION_ALERT", "DEPRESSION_WATCH") else ""}
    {"- <b>Evento Macro:</b> " + str(data.get('macro_event')) if data.get('macro_event') else ""}
    {"- <b>Calendario Macro:</b> " + str(data.get('calendar_warning')) if data.get('calendar_warning') else ""}
@@ -1390,7 +1412,7 @@ IMPORTANTE: Entre cada sección usa EXACTAMENTE UN salto de línea (no dos).
    - <b>Morosidad:</b> {data.get('delinquency_rate')}%
    [UN salto de línea]
 6. <b><u>Análisis</u></b>
-   Párrafo(s) de análisis. Comienza con la fecha: "{today_str} -". Conecta los datos con la fase del ciclo (Auge, Especulación, o Quiebre). Identifica qué fase estamos transitando. Varía la redacción cada día. Si hay macro_event, úsalo como contexto. Si existe "Ciclo (Largo Plazo)", úsalo como fase principal. Si el "Régimen de Riesgo" o la "Fase Diaria" difieren, descríbelo como estrés táctico/puntual y NO como cambio de ciclo salvo persistencia. Nunca llames "ciclo" al régimen de riesgo.
+   Párrafo(s) de análisis. Comienza con la fecha: "{today_str} -". Conecta los datos con la fase del ciclo (Auge, Especulación, o Quiebre). Identifica qué fase estamos transitando. Varía la redacción cada día. Si hay macro_event, úsalo como contexto. Si existe "Ciclo (Largo Plazo)", úsalo como fase principal. Si el "Régimen de Riesgo" o el "Riesgo Diario" difieren, descríbelo como estrés táctico/puntual y NO como cambio de ciclo salvo persistencia. Usa la palabra "fase" SOLO para el ciclo de largo plazo; para riesgo diario utiliza "nivel" o "pulso". Nunca llames "ciclo" al régimen de riesgo.
 
    IMPORTANTE: NO menciones códigos internos de señales (HOUSING_BUST, SOLVENCY_DEATH, etc.) en el análisis. NUNCA digas "la señal X no se activó". Habla como un economista, no como un script. NUNCA digas "Foldvary".
 
@@ -1620,6 +1642,7 @@ def update_regime_context(analysis):
         regime = history_store.compute_regime(history_rows, RISK_WINDOW_DAYS, RISK_TREND_DAYS, RISK_MIN_DAYS)
 
         analysis.update(regime)
+        analysis["risk_regime_label"] = map_risk_level(analysis.get("regime_phase"))
         history_store.update_regime_fields(HISTORY_DB_PATH, date_str, regime)
 
         if GIST_TOKEN and STATE_GIST_ID:
