@@ -1806,8 +1806,11 @@ def send_telegram(message):
     """Dispatches the final message via the Telegram Bot API."""
     if not TG_TOKEN or not TG_CHAT_ID:
         return None
+    raw_message = (message or "").strip()
+    if not raw_message:
+        return None
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    payload = {"chat_id": TG_CHAT_ID, "text": message, "parse_mode": "HTML"}
+    payload = {"chat_id": TG_CHAT_ID, "text": raw_message, "parse_mode": "HTML"}
     try:
         response = _request_with_retries(
             "POST",
@@ -1820,11 +1823,34 @@ def send_telegram(message):
 
         description = _extract_telegram_error(response)
         if response.status_code == 400 and "parse entities" in description.lower():
+            sanitised_message = sanitize_telegram_html(raw_message)
+            sanitised_payload = {
+                "chat_id": TG_CHAT_ID,
+                "text": sanitised_message,
+                "parse_mode": "HTML",
+            }
+            print("Telegram HTML parse error; retrying with sanitised HTML.")
+            sanitised_response = _request_with_retries(
+                "POST",
+                url,
+                json_payload=sanitised_payload,
+                operation="Telegram send (sanitised HTML)",
+            )
+            if sanitised_response.ok:
+                return sanitised_response.json().get("result", {}).get("message_id")
+
+            sanitised_description = _extract_telegram_error(sanitised_response)
+            if not (
+                sanitised_response.status_code == 400
+                and "parse entities" in sanitised_description.lower()
+            ):
+                sanitised_response.raise_for_status()
+
             plain_payload = {
                 "chat_id": TG_CHAT_ID,
-                "text": _telegram_plain_text(message),
+                "text": _telegram_plain_text(sanitised_message),
             }
-            print("Telegram HTML parse error; retrying as plain text.")
+            print("Telegram HTML still invalid; retrying as plain text.")
             fallback_response = _request_with_retries(
                 "POST",
                 url,
