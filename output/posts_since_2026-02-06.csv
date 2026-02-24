@@ -1,0 +1,14 @@
+date,event,stress_score,stress_level,regime_phase,triggers,reason,run_ts
+2026-02-06,MULTIPLE_CRISIS,1,"Medio (Precaución)","Fase 1 - AUGE","FLASH_MOVE,FLASH_MOVE","MÚLTIPLES ALERTAS: ⚡ MOVIMIENTO SÚBITO: VIX -18.1% en una sesión | ⚡ MOVIMIENTO SÚBITO: Bitcoin +12.2% en una sesión",2026-02-06T20:21:56.912488+00:00
+2026-02-09,FLASH_MOVE,1,"Medio (Precaución)","Fase 1 - AUGE",FLASH_MOVE,"⚡ MOVIMIENTO SÚBITO: VIX -16.3% en una sesión",2026-02-09T20:30:05.494464+00:00
+2026-02-10,NORMAL,0,"Bajo (Nominal)","Fase 1 - AUGE","","Revisión Diaria.",2026-02-10T20:34:46.844504+00:00
+2026-02-11,NORMAL,0,"Bajo (Nominal)","Fase 1 - AUGE","","Revisión Diaria.",2026-02-11T20:27:57.562597+00:00
+2026-02-12,FLASH_MOVE,1,"Medio (Precaución)","Fase 1 - AUGE",FLASH_MOVE,"⚡ MOVIMIENTO SÚBITO: VIX +11.6% en una sesión",2026-02-12T20:23:23.788044+00:00
+2026-02-13,NORMAL,1,"Medio (Precaución)","Fase 1 - AUGE","","Revisión Diaria.",2026-02-13T20:26:49.981978+00:00
+2026-02-16,NORMAL,1,"Medio (Precaución)","Fase 1 - AUGE","","Revisión Diaria.",2026-02-16T20:18:36.524272+00:00
+2026-02-17,NORMAL,1,"Medio (Precaución)","Fase 1 - AUGE","","Revisión Diaria.",2026-02-17T20:25:54.340868+00:00
+2026-02-18,NORMAL,1,"Medio (Precaución)","Fase 1 - AUGE","","Revisión Diaria.",2026-02-18T20:27:22.379245+00:00
+2026-02-19,NORMAL,1,"Medio (Precaución)","Fase 1 - AUGE","","Revisión Diaria.",2026-02-19T20:21:07.244718+00:00
+2026-02-20,FLASH_MOVE,1,"Medio (Precaución)","Fase 1 - AUGE",FLASH_MOVE,"⚡ MOVIMIENTO SÚBITO: VIX -5.4% en una sesión",2026-02-20T20:18:59.437784+00:00
+2026-02-23,MULTIPLE_CRISIS,3,"Alto (Fragilidad)","Fase 1 - AUGE","FLASH_MOVE,FLASH_MOVE","MÚLTIPLES ALERTAS: ⚡ MOVIMIENTO SÚBITO: VIX +13.4% en una sesión | ⚡ MOVIMIENTO SÚBITO: Bitcoin -5.4% en una sesión",2026-02-23T20:33:39.562456+00:00
+2026-02-24,FLASH_MOVE,2,"Medio (Precaución)","Fase 1 - AUGE",FLASH_MOVE,"⚡ MOVIMIENTO SÚBITO: Bitcoin -6.3% en una sesión",2026-02-24T05:17:13.442771+00:00

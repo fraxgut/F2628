@@ -51,6 +51,16 @@ CYCLE_LOOKBACK_DAYS = int(os.environ.get("CYCLE_LOOKBACK_DAYS", str(365 * 10)))
 CYCLE_TREND_MONTHS = int(os.environ.get("CYCLE_TREND_MONTHS", "12"))
 CYCLE_STARTS_Z_MONTHS = int(os.environ.get("CYCLE_STARTS_Z_MONTHS", "60"))
 
+CYCLE_PHASE_AUGE = "Fase 1 - AUGE"
+CYCLE_PHASE_SPEC = "Fase 2 - ESPECULACIÓN"
+CYCLE_PHASE_BREAK = "Fase 3 - QUIEBRE"
+VALID_CYCLE_PHASES = {CYCLE_PHASE_AUGE, CYCLE_PHASE_SPEC, CYCLE_PHASE_BREAK}
+CYCLE_PHASE2_SPEC_THRESHOLD = 2
+CYCLE_PHASE2_PRESSURE_THRESHOLD = 3
+CYCLE_PHASE3_PRESSURE_THRESHOLD = 4
+CYCLE_NEAR_BREAK_PRESSURE_THRESHOLD = 3
+CYCLE_NEAR_BREAK_SPEC_THRESHOLD = 2
+
 # Initialize the new Client (only if key is present)
 client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
@@ -149,6 +159,7 @@ def load_state():
         "wpm_entry_price": None,
         "btc_entry_price": None,
         "last_buy_ts": None,
+        "cycle_phase": None,
         "recent_signals": {
             "SOLVENCY_DEATH": [],
             "SUGAR_CRASH": [],
@@ -209,6 +220,9 @@ def load_state():
             }
         else:
             state["daily_alerts"].setdefault("sent_ops_warnings", [])
+
+        # Ensure cycle phase exists (migration for old state files)
+        state.setdefault("cycle_phase", None)
 
         return state
     except Exception as e:
@@ -713,7 +727,83 @@ def map_risk_level(phase_label):
     return phase_label.replace("Fase", "Nivel")
 
 
-def compute_cycle_context(housing_df):
+def classify_cycle_phase(pressure, spec):
+    if pressure >= CYCLE_PHASE3_PRESSURE_THRESHOLD:
+        return CYCLE_PHASE_BREAK
+    if spec >= CYCLE_PHASE2_SPEC_THRESHOLD or pressure >= CYCLE_PHASE2_PRESSURE_THRESHOLD:
+        return CYCLE_PHASE_SPEC
+    return CYCLE_PHASE_AUGE
+
+
+def cycle_break_risk_label(phase, pressure, spec, trend):
+    if phase == CYCLE_PHASE_BREAK:
+        return "Crítico (Fase 3)", True
+    if (
+        pressure >= CYCLE_NEAR_BREAK_PRESSURE_THRESHOLD
+        or (pressure >= 2 and spec >= CYCLE_NEAR_BREAK_SPEC_THRESHOLD and trend == "Ascendente")
+    ):
+        return "Alto (Borde de Fase 3)", True
+    if phase == CYCLE_PHASE_SPEC:
+        return "Medio (Especulación)", False
+    return "Bajo (Auge)", False
+
+
+def enforce_cycle_phase_sequence(previous_phase, candidate_phase):
+    """
+    Enforces ordered long-cycle transitions: 1->2->3->1.
+    """
+    if candidate_phase not in VALID_CYCLE_PHASES:
+        return candidate_phase
+
+    if previous_phase not in VALID_CYCLE_PHASES:
+        return candidate_phase
+
+    if previous_phase == CYCLE_PHASE_AUGE:
+        if candidate_phase == CYCLE_PHASE_BREAK:
+            return CYCLE_PHASE_SPEC
+        return candidate_phase
+
+    if previous_phase == CYCLE_PHASE_SPEC:
+        if candidate_phase == CYCLE_PHASE_AUGE:
+            return CYCLE_PHASE_SPEC
+        return candidate_phase
+
+    if previous_phase == CYCLE_PHASE_BREAK:
+        if candidate_phase == CYCLE_PHASE_SPEC:
+            return CYCLE_PHASE_BREAK
+        return candidate_phase
+
+    return candidate_phase
+
+
+def dedupe_active_triggers(active_triggers):
+    if not active_triggers:
+        return []
+
+    ordered_events = []
+    reasons_by_event = {}
+
+    for event, reason in active_triggers:
+        if event not in reasons_by_event:
+            reasons_by_event[event] = []
+            ordered_events.append(event)
+        if reason and reason not in reasons_by_event[event]:
+            reasons_by_event[event].append(reason)
+
+    deduped = []
+    for event in ordered_events:
+        reasons = reasons_by_event.get(event) or []
+        if not reasons:
+            deduped.append((event, ""))
+            continue
+        if len(reasons) == 1:
+            deduped.append((event, reasons[0]))
+            continue
+        deduped.append((event, " | ".join(reasons)))
+    return deduped
+
+
+def compute_cycle_context(housing_df, previous_phase=None):
     """
     Builds long-cycle context from housing/credit fundamentals.
     Uses multi-year windows and monthly data (not short-term risk regime).
@@ -723,6 +813,11 @@ def compute_cycle_context(housing_df):
             "cycle_phase": None,
             "cycle_trend": None,
             "cycle_confidence": None,
+            "cycle_pressure": None,
+            "cycle_spec": None,
+            "cycle_index": None,
+            "cycle_break_risk": None,
+            "cycle_near_break": None,
         }
 
     if not isinstance(housing_df.index, pd.DatetimeIndex):
@@ -730,6 +825,11 @@ def compute_cycle_context(housing_df):
             "cycle_phase": None,
             "cycle_trend": None,
             "cycle_confidence": None,
+            "cycle_pressure": None,
+            "cycle_spec": None,
+            "cycle_index": None,
+            "cycle_break_risk": None,
+            "cycle_near_break": None,
         }
 
     monthly = housing_df.resample("M").last().ffill()
@@ -738,6 +838,11 @@ def compute_cycle_context(housing_df):
             "cycle_phase": None,
             "cycle_trend": None,
             "cycle_confidence": None,
+            "cycle_pressure": None,
+            "cycle_spec": None,
+            "cycle_index": None,
+            "cycle_break_risk": None,
+            "cycle_near_break": None,
         }
 
     def _series(name):
@@ -757,6 +862,11 @@ def compute_cycle_context(housing_df):
             "cycle_phase": None,
             "cycle_trend": None,
             "cycle_confidence": None,
+            "cycle_pressure": None,
+            "cycle_spec": None,
+            "cycle_index": None,
+            "cycle_break_risk": None,
+            "cycle_near_break": None,
         }
 
     max_months = max(len(s) for s in available_series)
@@ -841,16 +951,17 @@ def compute_cycle_context(housing_df):
             "cycle_phase": None,
             "cycle_trend": None,
             "cycle_confidence": None,
+            "cycle_pressure": None,
+            "cycle_spec": None,
+            "cycle_index": None,
+            "cycle_break_risk": None,
+            "cycle_near_break": None,
         }
 
     pressure = current["pressure"]
     spec = current["spec"]
-    if pressure >= 4:
-        phase = "Fase 3 - QUIEBRE"
-    elif spec >= 2 or pressure >= 3:
-        phase = "Fase 2 - ESPECULACIÓN"
-    else:
-        phase = "Fase 1 - AUGE"
+    phase = classify_cycle_phase(pressure, spec)
+    phase = enforce_cycle_phase_sequence(previous_phase, phase)
 
     trend = "Estable"
     if last_pos >= CYCLE_TREND_MONTHS:
@@ -869,10 +980,17 @@ def compute_cycle_context(housing_df):
     else:
         confidence = "Baja"
 
+    break_risk_label, near_break = cycle_break_risk_label(phase, pressure, spec, trend)
+
     return {
         "cycle_phase": phase,
         "cycle_trend": trend,
         "cycle_confidence": confidence,
+        "cycle_pressure": pressure,
+        "cycle_spec": spec,
+        "cycle_index": round(current["cycle_index"], 2),
+        "cycle_break_risk": break_risk_label,
+        "cycle_near_break": near_break,
     }
 
 
@@ -1254,22 +1372,18 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state, end_date=None):
     if flash_moves:
         flash_move_detected = True
         flash_moves_sorted = sorted(flash_moves, key=lambda x: abs(x[1]), reverse=True)
+        flash_reasons = []
         for asset_name, pct in flash_moves_sorted[:3]:  # Report top 3 if multiple
             sign = "+" if pct > 0 else ""
-            active_triggers.append(("FLASH_MOVE", f"⚡ MOVIMIENTO SÚBITO: {asset_name} {sign}{pct:.1f}% en una sesión"))
+            flash_reasons.append(f"⚡ MOVIMIENTO SÚBITO: {asset_name} {sign}{pct:.1f}% en una sesión")
+        if flash_reasons:
+            active_triggers.append(("FLASH_MOVE", " | ".join(flash_reasons)))
 
     # Update stress score with flash move detection
     if flash_move_detected:
         stress_score += 1
 
-    # Calculate stress level based on accumulated score
-    if stress_score == 0: stress_level = "Bajo (Nominal)"
-    elif stress_score <= 2: stress_level = "Medio (Precaución)"
-    elif stress_score <= 4: stress_level = "Alto (Fragilidad)"
-    else: stress_level = "CRÍTICO (Riesgo Sistémico)"
-
-    phase_daily = history_store.phase_from_score(stress_score)
-    risk_daily_label = map_risk_level(phase_daily)
+    # Final stress mapping is applied after event arbitration.
 
     # --- EXIT SIGNALS ---
     # Exit signals only fire if we have open positions (tracked in state).
@@ -1310,13 +1424,15 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state, end_date=None):
             ("SOLVENCY_DEATH", "SIMULACRO: Spread Crítico > 5.0%"),
             ("BOND_FREEZE", "SIMULACRO: Bonos congelados")
         ]
-        stress_level = "CRÍTICO (Simulacro)"
+
+    active_triggers = dedupe_active_triggers(active_triggers)
 
     # Determine Final Event and Reason (prioritize depression watch / combo signals)
     if not active_triggers:
         event = "NORMAL"
         reason = "Revisión Diaria."
     else:
+        unique_events = {evt for evt, _ in active_triggers}
         priority = ["COMBO_CRISIS", "DEPRESSION_ALERT", "DEPRESSION_WATCH", "TEMPORAL_CRISIS"]
         selected = None
         for p in priority:
@@ -1332,13 +1448,30 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state, end_date=None):
             primary_reason = selected[1]
             other_reasons = [t[1] for t in active_triggers if t[0] != event]
             reason = primary_reason if not other_reasons else primary_reason + " | " + " | ".join(other_reasons)
-        elif len(active_triggers) == 1:
+        elif len(unique_events) == 1:
             event = active_triggers[0][0]
             reason = active_triggers[0][1]
         else:
             event = "MULTIPLE_CRISIS"
             reasons_list = [t[1] for t in active_triggers]
             reason = "MÚLTIPLES ALERTAS: " + " | ".join(reasons_list)
+
+    if event == "MULTIPLE_CRISIS":
+        stress_score = max(stress_score, 3)
+    if DEBUG_CRISIS:
+        stress_score = max(stress_score, 5)
+
+    if stress_score == 0:
+        stress_level = "Bajo (Nominal)"
+    elif stress_score <= 2:
+        stress_level = "Medio (Precaución)"
+    elif stress_score <= 4:
+        stress_level = "Alto (Fragilidad)"
+    else:
+        stress_level = "CRÍTICO (Riesgo Sistémico)"
+
+    phase_daily = history_store.phase_from_score(stress_score)
+    risk_daily_label = map_risk_level(phase_daily)
 
     # State updates: record entry prices on BUY, clear on SELL (even if multiple signals fire)
     event_set = {evt for evt, _ in active_triggers}
@@ -1376,7 +1509,9 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state, end_date=None):
 
     trigger_events = [evt for evt, _ in active_triggers]
 
-    cycle_context = compute_cycle_context(housing_df)
+    cycle_context = compute_cycle_context(housing_df, previous_phase=state.get("cycle_phase"))
+    if cycle_context.get("cycle_phase"):
+        state_update["cycle_phase"] = cycle_context["cycle_phase"]
     macro_event, calendar_warning = get_macro_event(end_date)
 
     return {
@@ -1389,6 +1524,11 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state, end_date=None):
         "cycle_phase": cycle_context.get("cycle_phase"),
         "cycle_trend": cycle_context.get("cycle_trend"),
         "cycle_confidence": cycle_context.get("cycle_confidence"),
+        "cycle_pressure": cycle_context.get("cycle_pressure"),
+        "cycle_spec": cycle_context.get("cycle_spec"),
+        "cycle_index": cycle_context.get("cycle_index"),
+        "cycle_break_risk": cycle_context.get("cycle_break_risk"),
+        "cycle_near_break": cycle_context.get("cycle_near_break"),
         "trigger_events": trigger_events,
         "state_update": state_update,
         "us10y": round(us10y, 2) if us10y else 0,
@@ -1488,6 +1628,7 @@ IMPORTANTE: Entre cada sección usa EXACTAMENTE UN salto de línea (no dos).
    {"- <b>Ciclo (Largo Plazo):</b> " + str(data.get('cycle_phase')) if data.get('cycle_phase') else ""}
    {"- <b>Tendencia Ciclo:</b> " + str(data.get('cycle_trend')) if data.get('cycle_trend') else ""}
    {"- <b>Confianza Ciclo:</b> " + str(data.get('cycle_confidence')) if data.get('cycle_confidence') else ""}
+   {"- <b>Riesgo de Quiebre de Ciclo:</b> " + str(data.get('cycle_break_risk')) if data.get('cycle_break_risk') else ""}
    {"- <b>Régimen de Riesgo (" + str(data.get('regime_window_days')) + "d):</b> " + str(data.get('risk_regime_label')) if data.get('risk_regime_label') else ""}
    {"- <b>Tendencia Riesgo:</b> " + str(data.get('regime_trend')) if data.get('regime_trend') else ""}
    {"- <b>Confianza Riesgo:</b> " + str(data.get('regime_confidence')) if data.get('regime_confidence') else ""}
@@ -1537,7 +1678,7 @@ IMPORTANTE: Entre cada sección usa EXACTAMENTE UN salto de línea (no dos).
    - <b>Morosidad:</b> {data.get('delinquency_rate')}%
    [UN salto de línea]
 6. <b><u>Análisis</u></b>
-   Párrafo(s) de análisis. Comienza con la fecha: "{today_str} -". Conecta los datos con la fase del ciclo (Auge, Especulación, o Quiebre). Identifica qué fase estamos transitando. Varía la redacción cada día. Si hay macro_event, úsalo como contexto. Si existe "Ciclo (Largo Plazo)", úsalo como fase principal. Si el "Régimen de Riesgo" o el "Riesgo Diario" difieren, descríbelo como estrés táctico/puntual y NO como cambio de ciclo salvo persistencia. Usa la palabra "fase" SOLO para el ciclo de largo plazo; para riesgo diario utiliza "nivel" o "pulso". Nunca llames "ciclo" al régimen de riesgo.
+   Párrafo(s) de análisis. Comienza con la fecha: "{today_str} -". Conecta los datos con la fase del ciclo (Auge, Especulación, o Quiebre). Identifica qué fase estamos transitando. Varía la redacción cada día. Si hay macro_event, úsalo como contexto. Si existe "Ciclo (Largo Plazo)", úsalo como fase principal. Si el "Régimen de Riesgo" o el "Riesgo Diario" difieren, descríbelo como estrés táctico/puntual y NO como cambio de ciclo salvo persistencia. Usa la palabra "fase" SOLO para el ciclo de largo plazo; para riesgo diario utiliza "nivel" o "pulso". Nunca llames "ciclo" al régimen de riesgo. Si "Riesgo de Quiebre de Ciclo" es "Alto (Borde de Fase 3)" o "Crítico (Fase 3)", prioriza esa lectura en el análisis.
 
    IMPORTANTE: NO menciones códigos internos de señales (HOUSING_BUST, SOLVENCY_DEATH, etc.) en el análisis. NUNCA digas "la señal X no se activó". Habla como un economista, no como un script. NUNCA digas "Foldvary".
 
@@ -1743,6 +1884,9 @@ def update_regime_context(analysis):
         snapshot = {
             "date": date_str,
             "run_ts": datetime.now(timezone.utc).isoformat(),
+            "run_id": os.environ.get("GITHUB_RUN_ID"),
+            "run_event": os.environ.get("GITHUB_EVENT_NAME"),
+            "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
             "event": analysis.get("event"),
             "stress_score": analysis.get("stress_score"),
             "stress_level": analysis.get("stress_level"),
@@ -1752,6 +1896,14 @@ def update_regime_context(analysis):
             "regime_score": None,
             "regime_trend": None,
             "regime_confidence": None,
+            "cycle_phase": analysis.get("cycle_phase"),
+            "cycle_trend": analysis.get("cycle_trend"),
+            "cycle_confidence": analysis.get("cycle_confidence"),
+            "cycle_pressure": analysis.get("cycle_pressure"),
+            "cycle_spec": analysis.get("cycle_spec"),
+            "cycle_index": analysis.get("cycle_index"),
+            "cycle_break_risk": analysis.get("cycle_break_risk"),
+            "cycle_near_break": analysis.get("cycle_near_break"),
             "spx": analysis.get("spx"),
             "vix": analysis.get("vix"),
             "spread": analysis.get("spread"),

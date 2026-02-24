@@ -74,6 +74,7 @@ python sentinel.py
 ## Utilities
 - `python scripts/backfill_history.py` - backfills the SQLite history using current data sources.
 - `python scripts/calibrate_regime.py` - creates `output/regime_calibration.json` using USREC outcomes (F1-optimised thresholds).
+- `python scripts/export_runs_truth.py --since YYYY-MM-DD [--until YYYY-MM-DD]` - builds a canonical CSV from GitHub Actions `Analysis Result` logs (source-of-truth audit stream).
 - `python generate_manual.py` - builds ES/EN signal manuals (`es-foldvarysignalmanual.pdf`, `en-foldvarysignalmanual.pdf`).
 
 ## How it works

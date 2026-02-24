@@ -18,6 +18,9 @@ GIST_BACKOFF_BASE_SECONDS = 2
 COLUMNS = [
     "date",
     "run_ts",
+    "run_id",
+    "run_event",
+    "run_attempt",
     "event",
     "stress_score",
     "stress_level",
@@ -27,6 +30,14 @@ COLUMNS = [
     "regime_score",
     "regime_trend",
     "regime_confidence",
+    "cycle_phase",
+    "cycle_trend",
+    "cycle_confidence",
+    "cycle_pressure",
+    "cycle_spec",
+    "cycle_index",
+    "cycle_break_risk",
+    "cycle_near_break",
     "spx",
     "vix",
     "spread",
@@ -59,6 +70,9 @@ def ensure_db(db_path):
             CREATE TABLE IF NOT EXISTS daily_snapshots (
                 date TEXT PRIMARY KEY,
                 run_ts TEXT NOT NULL,
+                run_id TEXT,
+                run_event TEXT,
+                run_attempt TEXT,
                 event TEXT,
                 stress_score INTEGER,
                 stress_level TEXT,
@@ -68,6 +82,14 @@ def ensure_db(db_path):
                 regime_score REAL,
                 regime_trend TEXT,
                 regime_confidence TEXT,
+                cycle_phase TEXT,
+                cycle_trend TEXT,
+                cycle_confidence TEXT,
+                cycle_pressure INTEGER,
+                cycle_spec INTEGER,
+                cycle_index REAL,
+                cycle_break_risk TEXT,
+                cycle_near_break INTEGER,
                 spx REAL,
                 vix REAL,
                 spread REAL,
@@ -81,6 +103,49 @@ def ensure_db(db_path):
             )
             """
         )
+        required_columns = {
+            "date": "TEXT PRIMARY KEY",
+            "run_ts": "TEXT NOT NULL",
+            "run_id": "TEXT",
+            "run_event": "TEXT",
+            "run_attempt": "TEXT",
+            "event": "TEXT",
+            "stress_score": "INTEGER",
+            "stress_level": "TEXT",
+            "phase_daily": "TEXT",
+            "phase_score": "REAL",
+            "regime_phase": "TEXT",
+            "regime_score": "REAL",
+            "regime_trend": "TEXT",
+            "regime_confidence": "TEXT",
+            "cycle_phase": "TEXT",
+            "cycle_trend": "TEXT",
+            "cycle_confidence": "TEXT",
+            "cycle_pressure": "INTEGER",
+            "cycle_spec": "INTEGER",
+            "cycle_index": "REAL",
+            "cycle_break_risk": "TEXT",
+            "cycle_near_break": "INTEGER",
+            "spx": "REAL",
+            "vix": "REAL",
+            "spread": "REAL",
+            "us10y": "REAL",
+            "dxy": "REAL",
+            "net_liq_b": "REAL",
+            "gold": "REAL",
+            "btc": "REAL",
+            "triggers": "TEXT",
+            "reason": "TEXT",
+        }
+        existing_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(daily_snapshots)").fetchall()
+        }
+        for column_name, column_type in required_columns.items():
+            if column_name in existing_columns:
+                continue
+            conn.execute(
+                f"ALTER TABLE daily_snapshots ADD COLUMN {column_name} {column_type}"
+            )
         conn.commit()
 
 

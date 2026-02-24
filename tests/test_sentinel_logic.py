@@ -15,6 +15,7 @@ def _base_state():
         "wpm_entry_price": None,
         "btc_entry_price": None,
         "last_buy_ts": None,
+        "cycle_phase": None,
         "recent_signals": {
             "SOLVENCY_DEATH": [],
             "SUGAR_CRASH": [],
@@ -80,6 +81,47 @@ def _fred_df(index, spread=3.0):
 
 
 class SentinelLogicTests(unittest.TestCase):
+    def test_classify_cycle_phase_and_break_risk(self):
+        self.assertEqual(
+            sentinel.classify_cycle_phase(pressure=3, spec=1),
+            "Fase 2 - ESPECULACIÓN",
+        )
+        label, near_break = sentinel.cycle_break_risk_label(
+            phase="Fase 2 - ESPECULACIÓN",
+            pressure=3,
+            spec=1,
+            trend="Ascendente",
+        )
+        self.assertEqual(label, "Alto (Borde de Fase 3)")
+        self.assertTrue(near_break)
+
+    def test_enforce_cycle_phase_sequence_blocks_phase2_to_phase1(self):
+        adjusted = sentinel.enforce_cycle_phase_sequence(
+            "Fase 2 - ESPECULACIÓN",
+            "Fase 1 - AUGE",
+        )
+        self.assertEqual(adjusted, "Fase 2 - ESPECULACIÓN")
+
+    def test_enforce_cycle_phase_sequence_allows_phase3_to_phase1_reset(self):
+        adjusted = sentinel.enforce_cycle_phase_sequence(
+            "Fase 3 - QUIEBRE",
+            "Fase 1 - AUGE",
+        )
+        self.assertEqual(adjusted, "Fase 1 - AUGE")
+
+    def test_dedupe_active_triggers_collapses_same_event_reasons(self):
+        deduped = sentinel.dedupe_active_triggers(
+            [
+                ("FLASH_MOVE", "⚡ MOVIMIENTO SÚBITO: VIX +11.0% en una sesión"),
+                ("FLASH_MOVE", "⚡ MOVIMIENTO SÚBITO: Bitcoin -6.0% en una sesión"),
+                ("FLASH_MOVE", "⚡ MOVIMIENTO SÚBITO: VIX +11.0% en una sesión"),
+            ]
+        )
+        self.assertEqual(len(deduped), 1)
+        self.assertEqual(deduped[0][0], "FLASH_MOVE")
+        self.assertIn("VIX", deduped[0][1])
+        self.assertIn("Bitcoin", deduped[0][1])
+
     def test_check_temporal_combo_respects_window_days(self):
         state = _base_state()
         state["recent_signals"]["SUGAR_CRASH"] = ["2026-01-01"]
@@ -168,6 +210,55 @@ class SentinelLogicTests(unittest.TestCase):
         self.assertIn("HISTORY_GIST_LOAD_FAILED_SKIP_SAVE", enriched.get("ops_warnings", []))
         self.assertIn("HISTORY_GIST_SAVE_SKIPPED_DUE_LOAD_FAILURE", enriched.get("ops_warnings", []))
         mocked_save.assert_not_called()
+
+    def test_analyse_market_persists_cycle_phase_in_state_update(self):
+        market = _market_df()
+        wpm = _wpm_df(market.index)
+        fred = _fred_df(market.index)
+        state = _base_state()
+
+        with mock.patch.object(
+            sentinel,
+            "compute_cycle_context",
+            return_value={
+                "cycle_phase": "Fase 2 - ESPECULACIÓN",
+                "cycle_trend": "Ascendente",
+                "cycle_confidence": "Alta",
+            },
+        ):
+            result = sentinel.analyse_market(
+                market,
+                wpm,
+                fred,
+                pd.DataFrame(),
+                state,
+                end_date=market.index[-1].to_pydatetime(),
+            )
+
+        self.assertEqual(
+            result["state_update"].get("cycle_phase"),
+            "Fase 2 - ESPECULACIÓN",
+        )
+
+    def test_analyse_market_flash_move_multi_asset_stays_flash_event(self):
+        market = _market_df()
+        market.loc[market.index[-2], "^VIX"] = 20.0
+        market.loc[market.index[-1], "^VIX"] = 23.0
+        market.loc[market.index[-2], "BTC-USD"] = 40000.0
+        market.loc[market.index[-1], "BTC-USD"] = 44500.0
+
+        result = sentinel.analyse_market(
+            market,
+            _wpm_df(market.index),
+            _fred_df(market.index),
+            pd.DataFrame(),
+            _base_state(),
+            end_date=market.index[-1].to_pydatetime(),
+        )
+
+        self.assertEqual(result["event"], "FLASH_MOVE")
+        self.assertEqual(result["trigger_events"].count("FLASH_MOVE"), 1)
+        self.assertNotEqual(result["event"], "MULTIPLE_CRISIS")
 
     def test_send_ops_warnings_records_sent_codes_on_success(self):
         state = _base_state()

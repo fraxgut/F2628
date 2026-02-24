@@ -1,0 +1,14 @@
+date,run_id,run_started_at,event,stress_score,stress_level,cycle_phase,cycle_trend,cycle_confidence,regime_phase,regime_score,regime_trend,regime_confidence,risk_daily_label,reason
+2026-02-06,21764644182,2026-02-06T20:21:12Z,MULTIPLE_CRISIS,1,Medio (Precaución),Fase 2 - ESPECULACIÓN,Ascendente,Alta,Fase 1 - AUGE,1.0,Estable,Baja,Nivel 1 - Bajo,MÚLTIPLES ALERTAS: ⚡ MOVIMIENTO SÚBITO: VIX -18.1% en una sesión | ⚡ MOVIMIENTO SÚBITO: Bitcoin +12.2% en una sesión
+2026-02-09,21839450295,2026-02-09T20:29:31Z,FLASH_MOVE,1,Medio (Precaución),Fase 2 - ESPECULACIÓN,Ascendente,Alta,Fase 1 - AUGE,1.0,Estable,Baja,Nivel 1 - Bajo,⚡ MOVIMIENTO SÚBITO: VIX -16.3% en una sesión
+2026-02-10,21881409198,2026-02-10T20:33:48Z,NORMAL,0,Bajo (Nominal),Fase 2 - ESPECULACIÓN,Ascendente,Alta,Fase 1 - AUGE,0.8,Estable,Baja,Nivel 1 - Bajo,Revisión Diaria.
+2026-02-11,21921847779,2026-02-11T20:27:31Z,NORMAL,0,Bajo (Nominal),Fase 2 - ESPECULACIÓN,Ascendente,Alta,Fase 1 - AUGE,0.67,Estable,Baja,Nivel 1 - Bajo,Revisión Diaria.
+2026-02-12,21962907569,2026-02-12T20:22:47Z,FLASH_MOVE,1,Medio (Precaución),Fase 2 - ESPECULACIÓN,Ascendente,Alta,Fase 1 - AUGE,0.71,Estable,Alta,Nivel 1 - Bajo,⚡ MOVIMIENTO SÚBITO: VIX +11.6% en una sesión
+2026-02-13,22001646264,2026-02-13T20:25:18Z,NORMAL,1,Medio (Precaución),Fase 2 - ESPECULACIÓN,Ascendente,Alta,Fase 1 - AUGE,0.75,Estable,Alta,Nivel 1 - Bajo,Revisión Diaria.
+2026-02-16,22076389100,2026-02-16T20:17:53Z,NORMAL,1,Medio (Precaución),Fase 2 - ESPECULACIÓN,Ascendente,Alta,Fase 1 - AUGE,0.78,Estable,Alta,Nivel 1 - Bajo,Revisión Diaria.
+2026-02-17,22114422169,2026-02-17T20:25:14Z,NORMAL,1,Medio (Precaución),Fase 2 - ESPECULACIÓN,Ascendente,Alta,Fase 1 - AUGE,0.8,Estable,Alta,Nivel 1 - Bajo,Revisión Diaria.
+2026-02-18,22156354933,2026-02-18T20:26:52Z,NORMAL,1,Medio (Precaución),Fase 1 - AUGE,Descendente,Alta,Fase 1 - AUGE,0.82,Estable,Alta,Nivel 1 - Bajo,Revisión Diaria.
+2026-02-19,22198574135,2026-02-19T20:20:28Z,NORMAL,1,Medio (Precaución),Fase 1 - AUGE,Descendente,Alta,Fase 1 - AUGE,0.83,Estable,Alta,Nivel 1 - Bajo,Revisión Diaria.
+2026-02-20,22239677832,2026-02-20T20:18:23Z,FLASH_MOVE,1,Medio (Precaución),Fase 1 - AUGE,Descendente,Alta,Fase 1 - AUGE,0.85,Estable,Alta,Nivel 1 - Bajo,⚡ MOVIMIENTO SÚBITO: VIX -5.4% en una sesión
+2026-02-23,22323710573,2026-02-23T20:33:08Z,MULTIPLE_CRISIS,3,Alto (Fragilidad),Fase 1 - AUGE,Descendente,Alta,Fase 1 - AUGE,1.0,Ascendente,Alta,Nivel 2 - Elevado,MÚLTIPLES ALERTAS: ⚡ MOVIMIENTO SÚBITO: VIX +13.4% en una sesión | ⚡ MOVIMIENTO SÚBITO: Bitcoin -5.4% en una sesión
+2026-02-24,22337707026,2026-02-24T05:16:43Z,FLASH_MOVE,2,Medio (Precaución),Fase 1 - AUGE,Descendente,Alta,Fase 1 - AUGE,1.14,Ascendente,Alta,Nivel 2 - Elevado,⚡ MOVIMIENTO SÚBITO: Bitcoin -6.3% en una sesión

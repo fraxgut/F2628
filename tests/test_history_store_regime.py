@@ -1,4 +1,6 @@
 import os
+import sqlite3
+import tempfile
 import unittest
 from unittest import mock
 
@@ -6,6 +8,33 @@ import history_store
 
 
 class HistoryStoreRegimeTests(unittest.TestCase):
+    def test_ensure_db_migrates_cycle_and_run_columns(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = os.path.join(tmp_dir, "history.db")
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE daily_snapshots (
+                        date TEXT PRIMARY KEY,
+                        run_ts TEXT NOT NULL,
+                        event TEXT
+                    )
+                    """
+                )
+                conn.commit()
+
+            history_store.ensure_db(db_path)
+
+            with sqlite3.connect(db_path) as conn:
+                columns = {
+                    row[1] for row in conn.execute("PRAGMA table_info(daily_snapshots)").fetchall()
+                }
+
+        self.assertIn("run_id", columns)
+        self.assertIn("run_event", columns)
+        self.assertIn("cycle_phase", columns)
+        self.assertIn("cycle_break_risk", columns)
+
     def test_regime_history_limit_auto_includes_lookbacks_and_min_samples(self):
         with mock.patch.dict(
             os.environ,
