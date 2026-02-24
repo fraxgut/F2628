@@ -56,7 +56,7 @@ CYCLE_PHASE_SPEC = "Fase 2 - ESPECULACIÓN"
 CYCLE_PHASE_BREAK = "Fase 3 - QUIEBRE"
 VALID_CYCLE_PHASES = {CYCLE_PHASE_AUGE, CYCLE_PHASE_SPEC, CYCLE_PHASE_BREAK}
 CYCLE_PHASE2_SPEC_THRESHOLD = 2
-CYCLE_PHASE2_PRESSURE_THRESHOLD = 3
+CYCLE_PHASE2_PRESSURE_THRESHOLD = 2
 CYCLE_PHASE3_PRESSURE_THRESHOLD = 4
 CYCLE_NEAR_BREAK_PRESSURE_THRESHOLD = 3
 CYCLE_NEAR_BREAK_SPEC_THRESHOLD = 2
@@ -740,12 +740,53 @@ def cycle_break_risk_label(phase, pressure, spec, trend):
         return "Crítico (Fase 3)", True
     if (
         pressure >= CYCLE_NEAR_BREAK_PRESSURE_THRESHOLD
-        or (pressure >= 2 and spec >= CYCLE_NEAR_BREAK_SPEC_THRESHOLD and trend == "Ascendente")
+        or (pressure >= 2 and spec >= 1)
+        or (pressure >= 1 and spec >= CYCLE_NEAR_BREAK_SPEC_THRESHOLD and trend == "Ascendente")
     ):
         return "Alto (Borde de Fase 3)", True
     if phase == CYCLE_PHASE_SPEC:
         return "Medio (Especulación)", False
     return "Bajo (Auge)", False
+
+
+def cycle_context_adjustments(context_metrics):
+    """
+    Adds macro context to long-cycle scoring so late-cycle stress is not
+    underclassified when housing metrics lag.
+    """
+    if not context_metrics:
+        return 0, 0
+
+    pressure = 0
+    spec = 0
+
+    us10y = context_metrics.get("us10y")
+    mortgage_rate = context_metrics.get("mortgage_rate")
+    spread = context_metrics.get("spread")
+    vix = context_metrics.get("vix")
+    net_liq_b = context_metrics.get("net_liq_b")
+    spx_rsi = context_metrics.get("spx_rsi")
+
+    if us10y is not None and us10y >= 4.0:
+        pressure += 1
+    if mortgage_rate is not None and mortgage_rate >= 6.0:
+        pressure += 1
+    if spread is not None and spread >= 4.5:
+        pressure += 1
+
+    if (
+        net_liq_b is not None
+        and net_liq_b >= 5500
+        and spread is not None
+        and spread < 3.5
+        and vix is not None
+        and vix <= 20
+    ):
+        spec += 1
+    if spx_rsi is not None and spx_rsi >= 65:
+        spec += 1
+
+    return pressure, spec
 
 
 def enforce_cycle_phase_sequence(previous_phase, candidate_phase):
@@ -803,7 +844,7 @@ def dedupe_active_triggers(active_triggers):
     return deduped
 
 
-def compute_cycle_context(housing_df, previous_phase=None):
+def compute_cycle_context(housing_df, previous_phase=None, context_metrics=None):
     """
     Builds long-cycle context from housing/credit fundamentals.
     Uses multi-year windows and monthly data (not short-term risk regime).
@@ -958,8 +999,9 @@ def compute_cycle_context(housing_df, previous_phase=None):
             "cycle_near_break": None,
         }
 
-    pressure = current["pressure"]
-    spec = current["spec"]
+    context_pressure, context_spec = cycle_context_adjustments(context_metrics)
+    pressure = current["pressure"] + context_pressure
+    spec = current["spec"] + context_spec
     phase = classify_cycle_phase(pressure, spec)
     phase = enforce_cycle_phase_sequence(previous_phase, phase)
 
@@ -980,6 +1022,7 @@ def compute_cycle_context(housing_df, previous_phase=None):
     else:
         confidence = "Baja"
 
+    cycle_index = current["cycle_index"] + context_pressure + (context_spec * 0.5)
     break_risk_label, near_break = cycle_break_risk_label(phase, pressure, spec, trend)
 
     return {
@@ -988,7 +1031,7 @@ def compute_cycle_context(housing_df, previous_phase=None):
         "cycle_confidence": confidence,
         "cycle_pressure": pressure,
         "cycle_spec": spec,
-        "cycle_index": round(current["cycle_index"], 2),
+        "cycle_index": round(cycle_index, 2),
         "cycle_break_risk": break_risk_label,
         "cycle_near_break": near_break,
     }
@@ -1509,7 +1552,18 @@ def analyse_market(df, wpm_df, fred_df, housing_df, state, end_date=None):
 
     trigger_events = [evt for evt, _ in active_triggers]
 
-    cycle_context = compute_cycle_context(housing_df, previous_phase=state.get("cycle_phase"))
+    cycle_context = compute_cycle_context(
+        housing_df,
+        previous_phase=state.get("cycle_phase"),
+        context_metrics={
+            "us10y": us10y,
+            "mortgage_rate": mortgage_rate,
+            "spread": spread,
+            "vix": vix,
+            "net_liq_b": round(net_liquidity / 1000, 2),
+            "spx_rsi": float(spx_rsi_val) if spx_rsi_val is not None else None,
+        },
+    )
     if cycle_context.get("cycle_phase"):
         state_update["cycle_phase"] = cycle_context["cycle_phase"]
     macro_event, calendar_warning = get_macro_event(end_date)

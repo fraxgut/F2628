@@ -95,6 +95,29 @@ class SentinelLogicTests(unittest.TestCase):
         self.assertEqual(label, "Alto (Borde de Fase 3)")
         self.assertTrue(near_break)
 
+    def test_cycle_context_adjustments_detects_late_cycle_mix(self):
+        pressure, spec = sentinel.cycle_context_adjustments(
+            {
+                "us10y": 4.03,
+                "mortgage_rate": 6.01,
+                "spread": 2.95,
+                "vix": 19.6,
+                "net_liq_b": 5700.67,
+                "spx_rsi": 61.0,
+            }
+        )
+        self.assertEqual((pressure, spec), (2, 1))
+
+    def test_cycle_break_risk_label_marks_border_phase3(self):
+        label, near_break = sentinel.cycle_break_risk_label(
+            phase="Fase 2 - ESPECULACIÓN",
+            pressure=2,
+            spec=1,
+            trend="Descendente",
+        )
+        self.assertEqual(label, "Alto (Borde de Fase 3)")
+        self.assertTrue(near_break)
+
     def test_enforce_cycle_phase_sequence_blocks_phase2_to_phase1(self):
         adjusted = sentinel.enforce_cycle_phase_sequence(
             "Fase 2 - ESPECULACIÓN",
